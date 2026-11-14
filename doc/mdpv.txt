@@ -1,214 +1,206 @@
-*mdpv.txt*  GitHub-style markdown preview in the browser
+*mdpv.txt*  Live markdown preview in the browser
 
 Author:  hitori-chan
-License: MIT (see LICENSE)
+License: MIT
 
 ==============================================================================
 CONTENTS                                                       *mdpv-contents*
 
-  1. Introduction ................................................ |mdpv-intro|
-  2. Requirements ......................................... |mdpv-requirements|
-  3. Usage ....................................................... |:Preview|
-  4. Configuration .............................................. |mdpv-config|
-  5. Lua API ....................................................... |mdpv-api|
-  6. Scroll sync .................................................. |mdpv-sync|
-  7. The preview page ............................................. |mdpv-page|
-  8. Health ..................................................... |mdpv-health|
+  1. Introduction ............................................... |mdpv-intro|
+  2. Commands ..................................................... |:Preview|
+  3. Configuration ............................................. |mdpv-config|
+  4. Lua API ...................................................... |mdpv-api|
+  5. Syntax .................................................... |mdpv-syntax|
+  6. Sync and jumping ............................................ |mdpv-sync|
+  7. Following buffers ......................................... |mdpv-follow|
+  8. The page .................................................... |mdpv-page|
+  9. Health .................................................... |mdpv-health|
 
 ==============================================================================
-1. INTRODUCTION                                       *mdpv* *mdpv-intro*
+1. INTRODUCTION                                            *mdpv* *mdpv-intro*
 
-mdpv.nvim renders the current buffer in a browser tab, live, styled with
-GitHub's actual CSS and GitHub's exact markup — alerts and Obsidian callouts,
-task lists (clickable), wikilinks, footnotes, heading anchors, KaTeX math,
-Mermaid diagrams, emoji shortcodes, frontmatter tables. It runs a pure-Lua
-HTTP + SSE server on |vim.uv|: no Node, no Deno, no Python, no build step.
+Previews the current buffer in a browser tab and updates it as you edit.
+GitHub and Obsidian syntax render together (|mdpv-syntax|); the look is
+GitHub's or Obsidian's (|mdpv-styles|). The server is pure Lua on |vim.uv|:
+nothing to install or build.
 
-Any number of buffers can be previewed at once; each gets an unguessable URL
-on one shared, localhost-only server.
+Requires Neovim 0.12+ and a browser.
 
 ==============================================================================
-2. REQUIREMENTS                                          *mdpv-requirements*
+2. COMMANDS                                                         *:Preview*
 
-- Neovim 0.12+.
-- A browser, launched via |vim.ui.open()|.
-
-Frontend libraries are vendored under `assets/vendor/` — there is nothing to
-install or build.
-
-==============================================================================
-3. USAGE                                                          *:Preview*
-
-  :Preview            open (or re-open) a preview for the current buffer
-  :Preview!           force-preview a buffer whose filetype is not eligible
+  :Preview            open the current buffer's preview in the browser; if a
+                      tab already shows it, report that instead
+  :Preview!           same, for a buffer outside `filetypes`
   :Preview close      close the current buffer's preview
-  :Preview toggle     open/close the current buffer's preview
-  :Preview list       list active previews and their URLs
+  :Preview toggle     open or close it; `!` forces like :Preview!
+  :Preview list       list previews with their URLs and attached tabs
   :Preview stop       close all previews and stop the server
 
-Note: user commands must start with an uppercase letter (see
-|user-cmd-abbrev|), so a literal `:preview` is not possible.
-
 ==============================================================================
-4. CONFIGURATION                                              *mdpv-config*
+3. CONFIGURATION                                                 *mdpv-config*
 
-Calling setup() is optional. Defaults: >lua
+`setup()` is optional. Defaults: >lua
 
   require('mdpv').setup({
-    host = '127.0.0.1',    -- interface to bind; keep loopback
-    port = 0,              -- 0 = free ephemeral port (no conflicts)
-    theme = 'auto',        -- 'auto' | 'light' | 'dark'
-    debounce = 150,        -- ms of quiet before pushing an edit
-    filetypes = { 'markdown' }, -- eligible without :Preview!
-    auto_close = true,     -- close preview when its buffer unloads
-    auto_stop = true,      -- stop server with the last preview
-    open_browser = true,   -- false: only print the URL
-    math = true,           -- $…$ / $$…$$ / ```math via KaTeX; also accepts
-                           -- { macros = { ['\\RR'] = '\\mathbb{R}' } }
-    mermaid = true,        -- ```mermaid diagrams
-    emoji = true,          -- :shortcode: expansion
-    wikilinks = true,      -- [[page]] links + ![[image]] embeds
-    reload_images = true,  -- refresh images in previews on disk change
-    scroll_sync = true,    -- see |mdpv-sync|; true | false | 'both'
+    host = '127.0.0.1',
+    port = 0,                   -- 0 = any free port
+    theme = 'auto',             -- 'auto' | 'light' | 'dark'
+    style = 'github',           -- 'github' | 'obsidian'
+    debounce = 150,             -- ms before pushing an edit
+    filetypes = { 'markdown' }, -- previewable without :Preview!
+    follow_buffer = false,      -- see |mdpv-follow|
+    auto_close = true,          -- close a preview when its buffer unloads
+    auto_stop = true,           -- stop the server after the last preview
+    open_browser = true,
+    math = true,
+    mermaid = true,
+    emoji = true,
+    reload_images = true,       -- reload images that change on disk
+    scroll_sync = true,         -- see |mdpv-sync|
   })
 <
-Calling setup() again applies validated changes to previews that are already
-open; pages reload when renderer, theme, or sync settings change. `host` and
-`port` cannot change while a preview is open. Close the previews first to
-rebind the server without invalidating a live private URL.
+`theme`, `style`   Initial values. The page's pickers override them and save
+                   the choice (|mdpv-menu|).
+`filetypes`        Compound filetypes match on any part.
+`open_browser`     true: |vim.ui.open()|. false: only print the URL. A
+                   command list: `{ 'firefox', '--new-window' }`. A
+                   `function(url)`.
+`math`             true, false, or KaTeX options:
+                   `{ macros = { ['\\RR'] = '\\mathbb{R}' } }`.
+`scroll_sync`      true: the page follows the cursor. 'both': scrolling the
+                   page also moves the cursor. false: neither.
+
+Unknown keys warn; invalid values error. Calling `setup()` again updates open
+previews; pages reload when rendering changes. `host` and `port` can't change
+while previews are open.
 
 ==============================================================================
-5. LUA API                                                       *mdpv-api*
+4. LUA API                                                          *mdpv-api*
 
-  require('mdpv').open({bufnr}, {opts})                          *mdpv.open()*
-      Open a preview. {bufnr} defaults to the current buffer; {opts.force}
-      skips the filetype check. Returns the preview URL or nil.
+{bufnr} defaults to the current buffer.
 
-  require('mdpv').close({bufnr})                                *mdpv.close()*
-      Close the preview for {bufnr} (default: current buffer).
+require('mdpv').open({bufnr}, {opts})                            *mdpv.open()*
+    Open a preview and return its URL. `opts.force` skips the `filetypes`
+    check.
 
-  require('mdpv').toggle({bufnr})                              *mdpv.toggle()*
-      Open a preview if none is live for {bufnr}, otherwise close it.
+require('mdpv').close({bufnr})                                  *mdpv.close()*
+    Close the buffer's preview.
 
-  require('mdpv').stop()                                         *mdpv.stop()*
-      Close all previews and stop the server.
+require('mdpv').toggle({bufnr})                                *mdpv.toggle()*
+    Close the buffer's preview if it has one, else open one.
 
-  require('mdpv').url({bufnr})                                    *mdpv.url()*
-      The preview URL for a buffer, if one is live.
+require('mdpv').url({bufnr})                                      *mdpv.url()*
+    URL of the buffer's preview, or nil.
 
-  require('mdpv').list()                                         *mdpv.list()*
-      Returns { { bufnr, title, url }, ... } for all active previews.
+require('mdpv').list()                                           *mdpv.list()*
+    Open previews: `{ { bufnr, title, url, follow, tabs }, ... }`.
 
-==============================================================================
-6. SCROLL SYNC                                                  *mdpv-sync*
-
-With `scroll_sync = true` (default) the page follows your cursor line,
-interpolating between blocks for smooth tracking. The block under the cursor
-carries a subtle accent bar in the left gutter, the outline (|mdpv-outline|)
-highlights the enclosing heading, and when the cursor sits on a heading line
-the page's URL hash follows it — copy the address bar for a deep link.
-"Follow cursor" in the floating menu toggles all of this (remembered like
-every menu choice, see |mdpv-menu|).
-
-The reverse direction — scrolling the page moves the Neovim cursor to the
-line under the upper third of the viewport — is the menu's "Move cursor on
-scroll" switch, off by default; `scroll_sync = 'both'` defaults it to on
-instead. The two switches are independent, and echo suppression on both ends
-prevents feedback loops. `scroll_sync = false` turns scroll sync off
-entirely, in both directions.
+require('mdpv').stop()                                           *mdpv.stop()*
+    Close all previews and stop the server.
 
 ==============================================================================
-7. THE PREVIEW PAGE                                             *mdpv-page*
+5. SYNTAX                                        *mdpv-syntax* *mdpv-callouts*
 
-Content renders in the browser (markdown-it plus GitHub markup passes), so
-Neovim never parses markdown; edits are debounced, streamed over SSE, and
-DOM-diffed into the page — images don't reload, open <details> stay open,
-and unchanged math, diagrams, and highlighted code are not re-rendered.
+One syntax, no modes: GitHub's, plus Obsidian's where GitHub would show
+plain text.
 
-ALERTS & CALLOUTS                                          *mdpv-callouts*
-
-GitHub's five alerts (`> [!NOTE]` …) render exactly as GitHub does, and the
-full Obsidian callout set (obsidian.md/help/callouts) rides on top: 13 types
-plus their aliases, custom titles after the marker, folding (`[!faq]-`
-starts collapsed, `[!tip]+` starts expanded), and nesting. Where the two
-vocabularies collide (`important`, `caution`), GitHub wins; unknown types
-stay plain blockquotes.
-
-WIKILINKS                                                 *mdpv-wikilinks*
-
-`[[page]]` resolves to `page.md` next to the file, with `[[page|alias]]`,
-`[[page#heading]]`, and image embeds `![[img.png]]`. Set
-`wikilinks = false` to render them literally, like GitHub outside wikis.
-
-TASK LISTS                                               *mdpv-checkboxes*
-
-Checkboxes in a live preview are clickable: ticking one flips the
-`[ ]`/`[x]` on that source line in the buffer (which must be 'modifiable').
-Statically rendered .md files keep them read-only, like on GitHub.
-
-CODE                                                           *mdpv-code*
-
-Fenced code is highlighted with highlight.js (loaded lazily, on the first
-block that needs it) and every block shows a copy button on hover.
-
-MATH & DIAGRAMS                                                *mdpv-math*
-
-KaTeX and Mermaid are vendored but fetched only when a document uses them.
-`math` accepts a table of KaTeX options — e.g. macros, see |mdpv-config|.
-Rendered diagrams show pan/zoom controls on hover: zoom in/out, drag to pan
-while zoomed, double-click (or the reset button) to restore.
-
-FILES & LINKS                                                 *mdpv-files*
-
-Relative images and links resolve against the file's directory (and its
-subtree; links pointing above it are not served). A relative link to
-another `.md` file renders as a page too; append `?raw` for the raw file.
-Media is served with byte ranges, so video and audio can seek. Symlinks are
-resolved and rejected when their target escapes the file's directory. Linked
-HTML/XHTML downloads instead of executing in the preview origin, and all raw
-file responses carry restrictive browser security headers.
-
-LIVE IMAGE RELOAD                                            *mdpv-images*
-
-Images and media the page has loaded are watched on disk; regenerating one
-(a screenshot, a rendered diagram) refreshes it in place in every open
-preview. Disable with `reload_images = false`.
-
-THE FLOATING MENU                                              *mdpv-menu*
-
-A floating button (bottom right by default; drag it to any corner) shows
-the connection state and opens the page menu. Sync (live previews only):
-follow cursor, move cursor on scroll. View: outline, full width, theme
-(auto/light/dark). Plus go to top.
-
-Every choice — corners included — is remembered across sessions: the page
-keeps it in the browser and mirrors it to a small state file on the editor
-side (`stdpath("state")/mdpv-prefs.json`), so the next session's page picks
-up your last settings even though the server sits on a new port by then
-(which browsers treat as a different site).
-
-THE OUTLINE                                                 *mdpv-outline*
-
-The document outline floats over the page collapsed into a slim rail of
-dashes — one per heading, longer for higher levels, with the section you
-are reading accented (scroll-spied). Hovering the rail expands it in place
-into the full heading list, where levels read by weight and shade (h1
-heaviest) and indentation. Clicking an entry jumps to it, and moving the
-pointer away collapses the list back to the rail. On by default; switch it
-off (and back on) from the menu. Drag it to park it in any corner; when it
-meets the menu button in a corner, it steps aside so the two never overlap.
-
-SECURITY                                                   *mdpv-security*
-
-Raw HTML is sanitized with DOMPurify; pages carry a strict CSP; the server
-binds localhost only, and private preview/file/sync routes are token-gated.
-The shared status page exposes no preview names, URLs, or tokens. Path
-traversal (`..`) and escaping symlinks are rejected on all file routes.
+GitHub     tables, task lists, alerts, footnotes, math, Mermaid, `:emoji:`,
+           frontmatter as a table, sanitized raw HTML; code highlighted
+           with GitHub's grammars and colors (starry-night, about 80
+           languages; others stay plain)
+Obsidian   callouts: GitHub's alerts plus Obsidian's types, custom titles,
+             folding (`[!faq]-`, `[!tip]+`), nesting
+           `[[page]]`, `[[page|alias]]`, `[[page#heading]]`, `[[page#^id]]`
+           `![[img.png]]`, `![[img.png|300]]`, `![alt|300x200](img.png)`;
+             other embeds become links
+           `==highlight==`, `%%comment%%` (inline or block), `#tag`,
+           `^[inline footnote]`
+           `^id` ending a paragraph or list item, or alone after a block:
+             names it for `[[#^id]]`
 
 ==============================================================================
-8. HEALTH                                                     *mdpv-health*
+6. SYNC AND JUMPING                                    *mdpv-sync* *mdpv-jump*
 
-Run `:checkhealth mdpv` to verify the Neovim version, vendored assets, and
-server state.
+The page scrolls to the cursor line and marks the block under it. On a
+heading line, the URL hash follows (`#heading`).
+
+Two switches in the menu (|mdpv-menu|):
+
+  Follow cursor          the page follows the cursor (`f`); on by default
+  Move cursor on scroll  scrolling the page moves the cursor; on by default
+                         only with `scroll_sync = 'both'`
+
+With `scroll_sync = false` both are off and hidden.
+
+Double-click the page to jump: the cursor lands on the line clicked, folds
+open, view centered. Works regardless of `scroll_sync`.
+
+==============================================================================
+7. FOLLOWING BUFFERS                                             *mdpv-follow*
+
+With `follow_buffer = true` there is one shared preview. Entering a normal
+file buffer whose filetype is in `filetypes` switches it to that buffer;
+help, terminals, scratch buffers, and floating windows don't. The preview
+survives its buffer being unloaded and stays open until `:Preview close`.
+Turning `follow_buffer` off keeps it open on the buffer it shows.
+
+==============================================================================
+8. THE PAGE                                                        *mdpv-page*
+
+KEYS                                                               *mdpv-keys*
+
+  j  k      scroll                 o   outline
+  d  u      half page              w   full width
+  gg  G     top, bottom            t   cycle theme
+  ]]  [[    next, prev heading     s   cycle style
+  m         menu                   f   follow cursor
+  ?         shortcuts
+
+MENU                                                               *mdpv-menu*
+
+The floating button opens the menu: sync switches, outline, full width,
+theme, style, shortcuts. Its dot shows the connection: live, reconnecting,
+closed (by Neovim), or disconnected (Neovim is gone). Drag the button or the
+outline to any corner.
+
+Choices are saved in `stdpath("state")/mdpv-prefs.json` and apply to every
+open tab, across sessions.
+
+STYLES                                                           *mdpv-styles*
+
+  github     github-markdown-css (default)
+  obsidian   Obsidian's default theme: colors, headings, lists, callouts,
+             checkboxes, code; frontmatter as Properties
+
+Each works in every theme: light, dark, or auto (follows the system). Only
+CSS changes; the markup is the same.
+
+OUTLINE                                                         *mdpv-outline*
+
+A rail of dashes, one per heading, with the current section marked. Hover
+to expand it into the heading list; click a heading to go there.
+
+RENDERING                                                   *mdpv-rendering*
+
+- Task checkboxes toggle the buffer's line, unless it isn't modifiable.
+- Code blocks get a copy button. The highlighter warms up with the page;
+  each language, KaTeX, and Mermaid load on first use.
+- Relative links and images resolve against the file's directory and can't
+  reach above it. Linked `.md` files open as static pages; add `?raw` for
+  the source.
+
+SECURITY                                                       *mdpv-security*
+
+- Localhost only; every preview URL carries an unguessable token.
+- Raw HTML is sanitized, and pages use a strict CSP.
+- Paths escaping the file's directory, including symlinks, are rejected.
+- HTML files download instead of rendering.
+
+==============================================================================
+9. HEALTH                                                        *mdpv-health*
+
+`:checkhealth mdpv` checks the Neovim version, assets, browser opener,
+preferences path, and server state.
 
 vim:tw=78:ts=8:noet:ft=help:norl:
