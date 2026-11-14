@@ -139,36 +139,39 @@ local function stream_body(sock, fd, first, last, head)
         return finish(true) -- truncated mid-stream (file shrank?): drop the socket
       end
       offset = offset + #data
-      local ok = pcall(sock.write, sock, data, function(werr)
+      local queued = http.write(sock, data, function(werr)
         if werr then
           return finish(true)
         end
         pump() -- next chunk only after this one flushed: natural backpressure
       end)
-      if not ok then
+      if not queued then
         finish(true)
       end
     end)
   end
-  local ok = pcall(sock.write, sock, head, function(werr)
+  local queued = http.write(sock, head, function(werr)
     if werr then
       return finish(true)
     end
     pump()
   end)
-  if not ok then
+  if not queued then
     finish(true)
   end
 end
 
 --- Serve a file from disk, streamed in chunks: no whole-file buffering, byte
 --- ranges so media can seek, and Last-Modified revalidation so a reload of an
---- unchanged file costs a 304 instead of a re-download.
----@param req { head_only: boolean?, range: string?, if_modified_since: string? }?
----@param opts { secure: boolean?, on_open: fun(path: string, stat: table)? }?
-function M.serve(sock, path, cache_control, req, opts)
-  req = req or {}
+--- unchanged file costs a 304 instead of a re-download. `secure` adds the
+--- lockdown headers for workspace files; `on_open` sees each opened file.
+---@param req mdpv.Request
+---@param opts { cache_control: string?, secure: boolean?, on_open: fun(path: string, stat: table)? }?
+function M.serve(sock, path, req, opts)
   opts = opts or {}
+  local cache_control = opts.cache_control
+  local range = http.req_header(req.head, 'range')
+  local if_modified_since = http.req_header(req.head, 'if-modified-since')
   local ext = path:match('%.([%w]+)$')
   ext = ext and ext:lower() or ''
   local active_document = opts.secure and ACTIVE_DOCUMENT_EXT[ext]
@@ -202,7 +205,7 @@ function M.serve(sock, path, cache_control, req, opts)
         pcall(opts.on_open, path, stat)
       end
       local modified = http_date(stat.mtime.sec)
-      if req.if_modified_since == modified then
+      if if_modified_since == modified then
         uv.fs_close(fd, function() end)
         return http.respond(
           sock,
@@ -214,7 +217,7 @@ function M.serve(sock, path, cache_control, req, opts)
           })
         )
       end
-      local first, last = parse_range(req.range, stat.size)
+      local first, last = parse_range(range, stat.size)
       if first == 'unsatisfiable' then
         uv.fs_close(fd, function() end)
         return http.respond(sock, 416, secure({ ['Content-Range'] = 'bytes */' .. stat.size }), nil, req.head_only)

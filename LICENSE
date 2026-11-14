@@ -14,8 +14,10 @@ copies or substantial portions of the Software.
 
 Vendored third-party assets under assets/vendor/ retain their own licenses
 (MIT: markdown-it, markdown-it-task-lists, markdown-it-footnote,
-markdown-it-emoji, github-markdown-css, katex, mermaid, morphdom;
-Apache-2.0/MPL dual: dompurify; BSD-3-Clause: highlight.js). See
+markdown-it-emoji, markdown-it-mark, github-markdown-css, katex, mermaid,
+morphdom, starry-night, vscode-textmate, vscode-oniguruma; BSD-2-Clause:
+Oniguruma, in onig.wasm; Apache-2.0/MPL dual: dompurify). The highlighting
+grammars keep theirs, listed in assets/vendor/starry-night/NOTICE. See
 assets/vendor/VERSIONS.txt for the pinned versions.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR

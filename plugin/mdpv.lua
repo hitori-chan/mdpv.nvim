@@ -18,7 +18,7 @@ end, {
   complete = function(arglead)
     return require('mdpv')._complete(arglead)
   end,
-  desc = 'GitHub-style markdown preview in the browser (:Preview [open|close|toggle|stop|list])',
+  desc = 'Markdown preview in the browser (:Preview[!] [open|close|toggle|list|stop])',
 })
 
 vim.api.nvim_create_autocmd('VimLeavePre', {

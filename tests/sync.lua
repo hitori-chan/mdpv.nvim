@@ -81,7 +81,9 @@ check('page rendered under CDP', watch.saw('LOADED'))
 vim.api.nvim_win_set_cursor(0, { vim.api.nvim_buf_line_count(buf) - 2, 0 })
 vim.cmd('doautocmd CursorMoved')
 check('cursor move scrolled the page', watch.saw('SCROLLED'))
-check('cursor block marked in the page', watch.saw('MARKED'))
+-- Footnotes render last but map to the line they were written on (mid
+-- document here): a cursor past that line must not land in them.
+check('cursor block marked in the page, outside the footnotes', watch.saw('MARKED body'))
 -- Park the cursor on a heading line: the page's URL hash should follow.
 local heading_line
 for i, l in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do

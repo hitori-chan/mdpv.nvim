@@ -57,15 +57,11 @@ local function notify(token, rel)
     150,
     0,
     vim.schedule_wrap(function()
-      local paths = {}
-      for r in pairs(w.pending) do
-        paths[#paths + 1] = r
-      end
+      local paths = vim.tbl_keys(w.pending)
       w.pending = {}
       if #paths > 0 and watched[token] then
-        table.sort(paths)
         -- Lazy require: server requires this module at load time.
-        require('mdpv.server').broadcast(token, 'assets', vim.json.encode({ paths = paths }))
+        require('mdpv.server').broadcast(token, 'assets', paths)
       end
     end)
   )

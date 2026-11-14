@@ -85,16 +85,28 @@ check('all template placeholders expanded', body:find('{{', 1, true) == nil)
 check('github stylesheet linked', body:find('github%-markdown[%w%-]*%.css') ~= nil)
 
 for _, rel in ipairs({
-  'app.js',
+  'js/main.js',
   'mdpv.css',
   'favicon.svg',
   'vendor/markdown-it.min.js',
   'vendor/github-markdown.css',
-  'vendor/hljs-github-auto.css',
+  'vendor/starry-night/index.json',
+  'vendor/starry-night/onig.wasm',
 }) do
   local s = get(base .. '/assets/' .. rel)
   check('GET /assets/' .. rel .. ' is 200', s == 200, s)
 end
+
+-- Asset URLs carry a content version in the path; relative imports and
+-- lazy loads inherit it, so only versioned responses are immutable.
+local version = body:match('/assets/(%d+)/js/main%.js')
+check('page references versioned assets', version ~= nil)
+local _, versioned = get(base .. '/assets/' .. (version or '0') .. '/js/main.js')
+check('versioned asset is immutable', versioned:find('immutable', 1, true) ~= nil)
+local _, unversioned = get(base .. '/assets/js/main.js')
+check('unversioned asset revalidates instead', unversioned:find('immutable', 1, true) == nil)
+local stale = get(base .. '/assets/1/js/main.js')
+check('stale asset version still served', stale == 200, stale)
 
 status = get(base .. '/assets/../lua/mdpv/init.lua', { '--path-as-is' })
 check('asset path traversal rejected', status == 403, status)
@@ -496,33 +508,158 @@ local function post_prefs(tok, json)
     base .. '/prefs/' .. tok,
   })
 end
-pres = post_prefs(token, '{"mdpv-theme":"dark","mdpv-wide":"1"}')
-check('POST /prefs/<token> is 204', pres.stdout == '204', pres.stdout)
-vim.wait(300)
 status, body = get(url)
 check(
-  'page ships the posted prefs',
-  body:find('"mdpv-theme":"dark"', 1, true) ~= nil and body:find('"mdpv-wide":"1"', 1, true) ~= nil
+  'page renders default prefs onto <html>',
+  body:find('<html lang="en" data-theme="auto" data-style="github" data-wide="0" data-outline="1"', 1, true) ~= nil
+)
+-- Another open tab hears about a change over SSE.
+local prefs_out = ''
+local prefs_job = vim.system({ 'curl', '-sN', '--max-time', '3', base .. '/events/' .. token }, {
+  text = true,
+  stdout = function(_, d)
+    if d then
+      prefs_out = prefs_out .. d
+    end
+  end,
+}, function() end)
+vim.wait(300)
+pres = post_prefs(token, '{"theme":"dark","wide":"1","style":"obsidian"}')
+check('POST /prefs/<token> is 204', pres.stdout == '204', pres.stdout)
+check(
+  'pref change echoed to open tabs',
+  vim.wait(2000, function()
+    return prefs_out:find('event: prefs', 1, true) ~= nil and prefs_out:find('"theme":"dark"', 1, true) ~= nil
+  end, 20),
+  prefs_out
+)
+prefs_job:kill(15)
+status, body = get(url)
+check(
+  'page renders the posted prefs',
+  body:find('data-theme="dark"', 1, true) ~= nil
+    and body:find('data-wide="1"', 1, true) ~= nil
+    and body:find('data-style="obsidian"', 1, true) ~= nil
+    and body:find('content="dark"', 1, true) ~= nil -- color-scheme meta follows
 )
 local prefs_file = vim.fn.stdpath('state') .. '/mdpv-prefs.json'
 check('prefs written to the state file', vim.fn.filereadable(prefs_file) == 1, prefs_file)
 -- Junk never reaches the file or the page: unknown keys, unknown values, and
 -- non-string values are dropped; the valid key in the same POST still lands.
-pres = post_prefs(token, '{"mdpv-theme":"neon","evil":"x","mdpv-outline":true,"mdpv-fab-corner":"tl"}')
+pres = post_prefs(token, '{"theme":"neon","style":"word","evil":"x","outline":true,"fab":"tl"}')
 check('junk-pref POST still 204', pres.stdout == '204', pres.stdout)
 vim.wait(300)
 status, body = get(url)
-check('valid pref in a mixed POST lands', body:find('"mdpv-fab-corner":"tl"', 1, true) ~= nil)
+check('valid pref in a mixed POST lands', body:find('data-fab="tl"', 1, true) ~= nil)
 check(
   'unknown keys and values dropped',
-  body:find('"mdpv-theme":"dark"', 1, true) ~= nil
+  body:find('data-theme="dark"', 1, true) ~= nil
+    and body:find('data-style="obsidian"', 1, true) ~= nil
     and body:find('neon', 1, true) == nil
+    and body:find('word', 1, true) == nil
     and body:find('evil', 1, true) == nil
+    and body:find('data-outline="1"', 1, true) ~= nil
 )
+local saved = vim.json.decode(table.concat(vim.fn.readfile(prefs_file), '\n'))
+check('state file holds only sanitized prefs', saved.theme == 'dark' and saved.fab == 'tl' and saved.evil == nil)
+-- Another Neovim instance writing the file is picked up, and merged into
+-- rather than overwritten on the next change; legacy key names still read.
+-- An unknown style is dropped, falling back to the default.
+vim.fn.writefile({ '{"theme":"dark","fab":"tl","wide":"1","mdpv-toc-corner":"bl","style":"bogus"}' }, prefs_file)
+vim.uv.fs_utime(prefs_file, os.time() + 5, os.time() + 5)
+post_prefs(token, '{"outline":"0"}')
+vim.wait(300)
+status, body = get(url)
+check(
+  'external edits merged, legacy keys migrated',
+  body:find('data-toc="bl"', 1, true) ~= nil and body:find('data-outline="0"', 1, true) ~= nil
+)
+check('an unknown style falls back to the default', body:find('data-style="github"', 1, true) ~= nil)
+post_prefs(token, '{"outline":"1","fab":"br","toc":"tr","style":"github"}')
+vim.wait(200)
 pres = post_prefs(('0'):rep(32), '{"mdpv-theme":"light"}')
 check('POST /prefs unknown token is 404', pres.stdout == '404', pres.stdout)
 pres = post_prefs(token, 'not json')
 check('malformed prefs body ignored (204)', pres.stdout == '204', pres.stdout)
+
+-- --- SSE queue: coalescing, merging, no size cap, stall detection -----------
+
+do
+  local sse = require('mdpv.sse')
+  -- A socket whose writes complete on the next loop turn, like libuv's;
+  -- while `hold` is set they stay in flight (callbacks kept in `held`).
+  local function fake()
+    local sock = { out = {}, held = {}, closed = false }
+    function sock.write(_, data, cb)
+      sock.out[#sock.out + 1] = data
+      if sock.hold then
+        sock.held[#sock.held + 1] = cb
+      else
+        vim.schedule(function()
+          cb()
+        end)
+      end
+      return {} -- a uv_write_t
+    end
+    function sock.is_closing()
+      return sock.closed
+    end
+    return sock
+  end
+  local sock, dead = fake(), false
+  local stream = sse.open(sock --[[@as any]], function()
+    dead = true
+  end)
+  stream:send('prefs', { theme = 'dark' })
+  stream:send('prefs', { wide = '1' })
+  stream:send('prefs', { outline = '0' })
+  stream:send('update', '"a"')
+  stream:send('update', '"b"')
+  vim.wait(200, function()
+    return #sock.out >= 3
+  end)
+  local all = table.concat(sock.out)
+  check(
+    'prefs sent in one tick merge into one frame',
+    all:find('"outline":"0"', 1, true) and all:find('"theme":"dark"', 1, true) and all:find('"wide":"1"', 1, true),
+    all
+  )
+  check('a newer update replaces the pending one', all:find('"b"', 1, true) and not all:find('"a"', 1, true), all)
+  local big = ('x'):rep(9 * 1024 * 1024)
+  stream:send('update', vim.json.encode(big))
+  vim.wait(200, function()
+    return #sock.out[#sock.out] > #big
+  end)
+  check('updates larger than 8 MiB still stream', not dead and #sock.out[#sock.out] > #big)
+  sock.hold = true -- the tab stops reading
+  stream:send('scroll', '{"line":1}')
+  stream:heartbeat()
+  check('a write in flight survives one heartbeat', not dead)
+  stream:heartbeat()
+  check('a write still in flight a heartbeat later drops the tab', dead)
+
+  -- Closing a preview while a write is in flight: the `close` frame is
+  -- queued behind it right away (a server stop then drains it), and
+  -- anything pending is dropped.
+  local sock2, dead2 = fake(), false
+  sock2.hold = true
+  local stream2 = sse.open(sock2 --[[@as any]], function()
+    dead2 = true
+  end)
+  stream2:send('update', '"stale"')
+  stream2:finish('close')
+  stream2:send('update', '"late"')
+  local out2 = table.concat(sock2.out)
+  check(
+    'finish queues the close frame behind the write in flight',
+    out2:find('event: close', 1, true) and not out2:find('stale', 1, true) and not out2:find('late', 1, true),
+    out2
+  )
+  for _, cb in ipairs(sock2.held) do
+    cb()
+  end
+  check('the stream ends once the close frame flushed', dead2)
+end
 
 -- --- Live asset reload: a served file changing pushes an `assets` event ------
 
@@ -705,7 +842,7 @@ check('restarted preview page is 200', s3 == 200, s3)
 check('math macros ship in the boot payload', body3:find('mathbb', 1, true) ~= nil)
 -- The page prefs POSTed earlier came back from the state file: this is the
 -- cross-session path (a real restart also means a new port = a fresh origin).
-check('prefs survive a server restart', body3:find('"mdpv-theme":"dark"', 1, true) ~= nil)
+check('prefs survive a server restart', body3:find('data-theme="dark"', 1, true) ~= nil)
 
 -- Reverse sync stays wired under the default scroll_sync = true: the page's
 -- "move cursor on scroll" switch decides whether lines are POSTed, so the
@@ -731,6 +868,145 @@ end, 10)
 check('cursor followed without scroll_sync = "both"', moved3, 'cursor at line ' .. vim.api.nvim_win_get_cursor(0)[1])
 require('mdpv').stop()
 check('stop clears previews', #require('mdpv').list() == 0)
+
+-- --- Jump to source (double-click) works even with scroll sync off ------------
+
+require('mdpv').setup({ open_browser = false, scroll_sync = false })
+vim.cmd.edit(root .. '/tests/fixtures/sample.md')
+local jbase, jtoken = assert(require('mdpv').open(0)):match('^(http://.-)/p/(%x+)$')
+local function post_sync(json)
+  return http({
+    '-o',
+    '/dev/null',
+    '-w',
+    '%{http_code}',
+    '--max-time',
+    '5',
+    '-X',
+    'POST',
+    '-d',
+    json,
+    jbase .. '/sync/' .. jtoken,
+  })
+end
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+post_sync('{"line":6}')
+vim.wait(300)
+check('scroll-sync lines ignored when scroll_sync = false', vim.api.nvim_win_get_cursor(0)[1] == 1)
+post_sync('{"line":8,"jump":true}')
+check(
+  'jump-to-source moves the cursor regardless',
+  vim.wait(2000, function()
+    return vim.api.nvim_win_get_cursor(0)[1] == 8
+  end, 10),
+  'cursor at ' .. vim.api.nvim_win_get_cursor(0)[1]
+)
+require('mdpv').stop()
+
+-- --- Browser opener + no duplicate tabs ----------------------------------------
+
+local function events_of(page_url, sink)
+  return vim.system({ 'curl', '-sN', '--max-time', '8', (page_url:gsub('/p/', '/events/')) }, {
+    text = true,
+    stdout = function(_, d)
+      if d then
+        sink(d)
+      end
+    end,
+  }, function() end)
+end
+local function tabs_attached(n)
+  return vim.wait(2000, function()
+    local l = require('mdpv').list()
+    return #l == 1 and l[1].tabs == n
+  end, 20)
+end
+
+local opened = {}
+local function opener(u)
+  opened[#opened + 1] = u
+end
+require('mdpv').setup({ debounce = 50, open_browser = opener })
+vim.cmd.edit(root .. '/tests/fixtures/sample.md')
+local ourl = require('mdpv').open(0)
+check('open_browser function receives the URL', #opened == 1 and opened[1] == ourl, vim.inspect(opened))
+local tab = events_of(assert(ourl), function() end)
+check('tab attached', tabs_attached(1))
+require('mdpv').open(0)
+check('re-open with a connected tab does not launch another', #opened == 1, #opened)
+tab:kill(15)
+require('mdpv').stop()
+
+-- --- follow_buffer: one tab follows the current buffer --------------------------
+
+opened = {}
+require('mdpv').setup({ debounce = 50, follow_buffer = true, open_browser = opener })
+vim.cmd.edit(root .. '/tests/fixtures/sample.md')
+local furl = assert(require('mdpv').open(0))
+local follow_out = ''
+local ftab = events_of(furl, function(d)
+  follow_out = follow_out .. d
+end)
+check('follower tab attached', tabs_attached(1))
+vim.cmd.edit(root .. '/tests/fixtures/second.md')
+check(
+  'follower rebinds to the entered buffer',
+  vim.wait(2000, function()
+    return follow_out:find('Second Document', 1, true) ~= nil
+  end, 20)
+)
+check('rebind pushes a new epoch', follow_out:find('"epoch":2', 1, true) ~= nil)
+local flist = require('mdpv').list()
+check('still a single, following preview', #flist == 1 and flist[1].follow and flist[1].title == 'second.md')
+check('the same URL serves the current buffer', require('mdpv').url(0) == furl)
+vim.cmd.edit(root .. '/tests/fixtures/note.txt')
+vim.wait(200)
+check('ineligible buffers do not take it over', require('mdpv').list()[1].title == 'second.md')
+vim.cmd.edit(root .. '/tests/fixtures/plain.md')
+vim.wait(200)
+require('mdpv').open(0)
+check('no new tab while one follows', #opened == 1 and require('mdpv').list()[1].title == 'plain.md', #opened)
+local plain_buf = vim.api.nvim_get_current_buf()
+vim.cmd.edit(root .. '/tests/fixtures/second.md')
+vim.wait(200)
+vim.cmd('bwipeout! ' .. vim.api.nvim_get_current_buf())
+vim.wait(300)
+flist = require('mdpv').list()
+check(
+  'wiping the shown buffer keeps the follower, back on the alternate',
+  #flist == 1 and flist[1].bufnr == plain_buf,
+  vim.inspect(flist)
+)
+ftab:kill(15)
+require('mdpv').close()
+check('follower closes', #require('mdpv').list() == 0)
+require('mdpv').stop()
+
+-- --- Config + URL plumbing -------------------------------------------------------
+
+local warned
+local orig_notify = vim.notify
+---@diagnostic disable-next-line: duplicate-set-field
+vim.notify = function(msg)
+  warned = msg
+end
+require('mdpv').setup({ open_browser = false, scroll_synk = true })
+vim.notify = orig_notify
+check('unknown options are reported', warned ~= nil and warned:find('scroll_synk', 1, true) ~= nil, warned)
+check('invalid options are rejected', not pcall(require('mdpv').setup, { port = 'x' }))
+check(
+  'open_browser accepts a command list',
+  pcall(require('mdpv').setup, { open_browser = { 'firefox', '--new-window' } })
+)
+require('mdpv').setup({ open_browser = false })
+local compound = vim.api.nvim_create_buf(true, false)
+vim.bo[compound].filetype = 'markdown.pandoc'
+check('compound filetypes are eligible', require('mdpv.config').eligible(compound, require('mdpv').config))
+local url_host = require('mdpv.http').url_host
+check(
+  'URL hosts: IPv6 bracketed, unspecified addresses map to loopback',
+  url_host('::1') == '[::1]' and url_host('::') == '[::1]' and url_host('0.0.0.0') == '127.0.0.1'
+)
 
 -- ------------------------------------------------------------------------------
 

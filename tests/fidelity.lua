@@ -14,8 +14,8 @@ vim.opt.runtimepath:prepend(root)
 vim.env.XDG_STATE_HOME = vim.fn.tempname()
 
 local chrome = os.getenv('MDPV_CHROME') or 'chromium'
-if vim.fn.executable(chrome) == 0 then
-  print('SKIP: no chromium found (set MDPV_CHROME)')
+if vim.fn.executable(chrome) == 0 or vim.fn.executable('node') == 0 then
+  print('SKIP: needs chromium (or MDPV_CHROME) and node')
   os.exit(0)
 end
 
@@ -35,33 +35,25 @@ vim.cmd.edit(root .. '/tests/fixtures/sample.md')
 local url = assert(require('mdpv').open(0), 'preview failed to open')
 local token = url:match('/p/(%x+)$')
 
--- No --virtual-time-budget: the open SSE stream counts as pending network
--- activity and virtual time would never expire. --timeout force-dumps the
--- DOM after real time, well past the initial render (which happens at load
--- from the embedded boot payload).
---
--- Run async + vim.wait: SystemObj:wait() starves the vim.schedule hops the
+-- The DOM once lazy typesetting has settled, via the DevTools driver. Run
+-- async + vim.wait: SystemObj:wait() starves the vim.schedule hops the
 -- server needs for buffer access.
-local done, res
-vim.system({
-  chrome,
-  '--headless=new',
-  '--disable-gpu',
-  '--user-data-dir=' .. vim.fn.tempname(),
-  '--timeout=9000', -- KaTeX/Mermaid lazy-load and typeset after the initial render
+local function dump(page)
+  local done, res
+  vim.system({ 'node', root .. '/tests/cdp.js', 'dump', page }, { text = true }, function(r)
+    res, done = r, true
+  end)
+  vim.wait(35000, function()
+    return done == true
+  end, 10)
+  return res and res.stdout or '', res and res.stderr or 'driver timed out'
+end
 
-  '--dump-dom',
-  url,
-}, { text = true, timeout = 30000 }, function(r)
-  res = r
-  done = true
-end)
-vim.wait(35000, function()
-  return done == true
-end, 10)
-
-local dom = res and res.stdout or ''
+local dom, err = dump(url)
 check('chromium rendered the page', #dom > 1000)
+if #dom <= 1000 then
+  print(err)
+end
 
 -- Assert against the rendered article only: the raw markdown source is also
 -- present in the page (boot JSON data block) and would confuse the checks.
@@ -123,6 +115,39 @@ check(
 )
 check('image embed wikilink', content:find('<img src="/f/' .. token .. '/img.png" alt="img.png"', 1, true) ~= nil)
 
+-- Obsidian syntax
+check('==highlight== marked', content:find('<mark>highlighted</mark>', 1, true) ~= nil)
+check(
+  '%%comments%% hidden, inline and block',
+  content:find('inline comment', 1, true) == nil
+    and content:find('Block comment', 1, true) == nil
+    and content:find('blank lines', 1, true) == nil
+    and content:find('%%', 1, true) == nil
+)
+check('nested #tag', content:find('<span class="mdpv-tag">#project/mdpv</span>', 1, true) ~= nil)
+check('plain #tag', content:find('<span class="mdpv-tag">#todo</span>', 1, true) ~= nil)
+check('numeric and mid-word # stay text', content:find('#1984 and C#sharp stay text', 1, true) ~= nil)
+check(
+  'trailing block ID names the paragraph, hidden',
+  content:find('<p id="^para%-id"[^>]*>A paragraph with a block ID%.</p>') ~= nil
+)
+check('block ID on a tight list item', content:find('<li id="^item%-id"[^>]*>tight item</li>') ~= nil)
+check(
+  'standalone block ID names the block before it',
+  content:find('<table id="^table-id"', 1, true) ~= nil and content:find('^table-id</p>', 1, true) == nil
+)
+check('same-page block link', content:find('<a href="#^para-id">#^para-id</a>', 1, true) ~= nil)
+check('cross-page block link', content:find('<a href="/f/' .. token .. '/second.md#^abc">there</a>', 1, true) ~= nil)
+check(
+  'markdown image size',
+  content:find('<img src="/f/' .. token .. '/img.png" alt="sized" width="120">', 1, true) ~= nil
+)
+check(
+  'embed image size',
+  content:find('<img src="/f/' .. token .. '/img.png" alt="img.png" width="80" height="40">', 1, true) ~= nil
+)
+check('inline footnote', content:find('<li id="fn[^>]*>%s*<p[^>]*>Inline footnote text%.') ~= nil)
+
 -- Heading anchors + GitHub slugs (incl. dedup)
 check('heading id slug', content:find('id="sample%-document"') ~= nil)
 check('anchor with octicon-link', content:find('class="anchor".-octicon%-link') ~= nil)
@@ -141,14 +166,33 @@ check('backref GitHub class', content:find('data-footnote-backref', 1, true) ~= 
 check('bare superscript ref (no brackets)', content:find('footnote%-ref"><a[^>]*>1</a>') ~= nil)
 
 -- Syntax highlighting + GFM inline
-check('hljs highlighted lua keyword', content:find('hljs%-keyword">local<') ~= nil)
+check(
+  'code highlighted with GitHub classes (starry-night)',
+  content:find(
+    '<span class="pl-k">local</span> <span class="pl-k">function</span> <span class="pl-en">greet</span>',
+    1,
+    true
+  ) ~= nil
+)
+check(
+  'string tokens nest GitHub-style',
+  content:find(
+    [[<span class="pl-s"><span class="pl-pds">'</span>hello %s<span class="pl-pds">'</span></span>]],
+    1,
+    true
+  ) ~= nil
+)
+check('unknown fence language stays plain', content:find('language-text mdpv-hl">plain fenced block', 1, true) ~= nil)
 check(
   'code blocks carry a copy button',
   content:find('<div class="mdpv%-pre"><pre>') ~= nil and content:find('class="mdpv%-copy"') ~= nil
 )
 check('strikethrough rendered', content:find('<s>strikethrough</s>', 1, true) ~= nil)
 check('autolinked bare URL', content:find('<a href="https://example.com">https://example.com</a>', 1, true) ~= nil)
-check('table rendered', content:find('<table>', 1, true) ~= nil)
+check(
+  'table rendered',
+  content:find('<table data%-source%-line="%d+">') ~= nil and content:find('<th>Feature</th>', 1, true) ~= nil
+)
 check('details/summary HTML preserved', content:find('<summary>Raw HTML details</summary>', 1, true) ~= nil)
 
 -- Math (KaTeX, lazy-loaded)
@@ -172,6 +216,7 @@ check('emoji shortcode expanded', content:find('\240\159\154\128', 1, true) ~= n
 
 -- Frontmatter rendered as a table (GitHub file view)
 check('frontmatter table with keys', content:find('<th>title</th>', 1, true) ~= nil)
+check('frontmatter table marked as GitHub does', content:find('data-table-type="yaml-metadata"', 1, true) ~= nil)
 check('frontmatter value cell', content:find('FRONTMATTER_TITLE_VALUE</td>', 1, true) ~= nil)
 check('frontmatter list joined', content:find('alpha, beta', 1, true) ~= nil)
 check('frontmatter nested map flattened', content:find('status: passing, ci: local', 1, true) ~= nil)
@@ -191,28 +236,41 @@ check(
 )
 check(
   'outline switch offered in the menu, on',
-  dom:find('outline%-toggle"[^>]*aria%-pressed="true"') ~= nil and dom:find('outline%-toggle"[^>]*hidden') == nil
+  dom:find('data%-pref="outline"[^>]*aria%-checked="true"') ~= nil
+    and dom:find('data%-pref="outline"[^>]*hidden') == nil
 )
 
--- Menu: theme segmented control replaces the old cycling row
+-- Menu: theme and style pickers are segmented controls
 check(
-  'theme options rendered as a segmented control',
-  dom:find('data%-theme%-opt="auto"') ~= nil and dom:find('data%-theme%-opt="dark"') ~= nil
+  'theme and style pickers rendered',
+  dom:find('data%-pref="theme"') ~= nil
+    and dom:find('data%-value="dark"[^>]*aria%-checked="false"') ~= nil
+    and dom:find('data%-pref="style"') ~= nil
+    and dom:find('data%-value="github"[^>]*aria%-checked="true"') ~= nil
 )
+check('Obsidian style sheet linked', dom:find('href="/assets/%d+/obsidian%.css"') ~= nil)
 
--- Page preferences ship in their own data block (empty here: fresh state dir)
-check('prefs data block shipped', dom:find('<script type="application/json" id="mdpv%-prefs">') ~= nil)
+-- Page preferences arrive as <html> attributes (defaults here: fresh state dir)
+check(
+  'prefs rendered onto <html>',
+  dom:find('<html[^>]* data%-theme="auto"') ~= nil
+    and dom:find('<html[^>]* data%-style="github"') ~= nil
+    and dom:find('<html[^>]* data%-outline="1"') ~= nil
+    and dom:find('<html[^>]* data%-fab="br"') ~= nil
+)
+check(
+  'menu and shortcut card are popovers',
+  dom:find('id="fab%-menu" popover') ~= nil and dom:find('id="mdpv%-keys" popover') ~= nil
+)
+check('assets load from a versioned path', dom:find('src="/assets/%d+/js/main%.js"') ~= nil)
 
 -- Scroll sync + diffing plumbing
 check('blocks carry data-source-line', content:find('data-source-line="', 1, true) ~= nil)
 check('sync toggles shown on a live preview', dom:find('id="sync%-group"[^>]*hidden') == nil)
+check('follow switch on', dom:find('data%-pref="follow"[^>]*aria%-checked="true"') ~= nil)
 check(
-  'follow toggle visible and on',
-  dom:find('follow%-toggle"[^>]*aria%-pressed="true"') ~= nil and dom:find('follow%-toggle"[^>]*hidden') == nil
-)
-check(
-  'move-cursor-on-scroll toggle off under scroll_sync = true',
-  dom:find('syncback%-toggle"[^>]*aria%-pressed="false"') ~= nil
+  'move-cursor-on-scroll switch off under scroll_sync = true',
+  dom:find('data%-pref="syncback"[^>]*aria%-checked="false"') ~= nil
 )
 check('typeset nodes keyed by source (morphdom)', content:find('data-mdpv-src="', 1, true) ~= nil)
 check('morphdom loaded', dom:find('vendor/morphdom%-umd%.min%.js') ~= nil)
@@ -223,7 +281,22 @@ check(
   'script tag sanitized out',
   content:find('<script', 1, true) == nil and content:find('document.body.innerHTML', 1, true) == nil
 )
-check('live status shown', dom:find('id="mdpv%-fab" data%-status="live"') ~= nil)
+check('live status shown', dom:find('<html[^>]* data%-status="live"') ~= nil)
+check('raw HTML still sanitized (an onerror handler never survives)', content:find('onerror', 1, true) == nil)
+
+-- A document without raw HTML skips the sanitizer: markdown-it's own output
+-- must still keep script URLs out, wikilinks included.
+vim.cmd.edit(root .. '/tests/fixtures/plain.md')
+local plain_url = assert(require('mdpv').open(0), 'plain preview failed to open')
+local plain_token = plain_url:match('/p/(%x+)$')
+local plain = (dump(plain_url):match('<article id="content".-</article>')) or ''
+check('plain document rendered', plain:find('<h1', 1, true) ~= nil)
+check('no javascript: URL survives the unsanitized path', plain:find('href="javascript:', 1, true) == nil)
+check('unsafe wikilink left as text', plain:find('[[javascript:alert(1)]]', 1, true) ~= nil)
+check(
+  'safe wikilink still resolves',
+  plain:find('<a href="/f/' .. plain_token .. '/second.md">second</a>', 1, true) ~= nil
+)
 
 require('mdpv').stop()
 

@@ -82,6 +82,34 @@ Plain [[second]], aliased [[second|the second page]], heading
 [[#wikilinks]], cross-page heading [[second#top|jump]], and an embedded
 image ![[img.png]].
 
+### Obsidian
+
+A ==highlighted== phrase, a hidden %%inline comment%% aside, tags
+#project/mdpv and #todo, but #1984 and C#sharp stay text.
+
+%%
+Block comment, hidden.
+
+Even across blank lines.
+%%
+
+A paragraph with a block ID. ^para-id
+
+Sized ![sized|120](img.png) and ![[img.png|80x40]] images.
+
+Block links [[#^para-id]] and [[second#^abc|there]].
+
+An inline footnote.^[Inline footnote text.]
+
+- tight item ^item-id
+- another item
+
+| a | b |
+| - | - |
+| 1 | 2 |
+
+^table-id
+
 ### Math
 
 Euler's identity $e^{i\pi} + 1 = 0$ inline, five dollars ($5) untouched.
@@ -123,3 +151,5 @@ Hidden *markdown* content.
 </details>
 
 <script>document.body.innerHTML = 'XSS'</script>
+
+<img src="x.png" onerror="document.title = 'XSS'">

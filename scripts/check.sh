@@ -8,8 +8,9 @@ echo '== stylua --check'
 stylua --check lua/ tests/
 
 echo '== node --check'
-node --check assets/app.js
+for f in assets/js/*.js; do node --check "$f"; done
 node --check tests/cdp.js
+node --check scripts/grammars.mjs
 
 echo '== lua-language-server --check'
 # lua-language-server does not expand $VIMRUNTIME in .luarc.json (the

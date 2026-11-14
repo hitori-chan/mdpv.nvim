@@ -1,575 +1,68 @@
-/* Page chrome around .markdown-body — mirrors GitHub's file view.
- * Color tokens track github-markdown-css v5 (Primer). Theme selection:
- * html[data-theme="auto"] follows prefers-color-scheme; "light"/"dark" force. */
+/* Page chrome around .markdown-body — mirrors GitHub's file view, in Primer
+ * colors. Page state lives on <html> as data-* attributes (rendered by the
+ * editor, flipped by the page): theme, style, wide, outline, follow,
+ * syncback, fab/toc corners, and the connection status. Colors resolve
+ * through light-dark() against color-scheme, which data-theme sets — so the
+ * vendored github-markdown sheet (folded the same way, code colors included)
+ * switches along with it. The Obsidian style (obsidian.css) retints the --mdpv-* tokens. */
 
-/* The callout colors can't lean on github-markdown-css custom properties:
- * the forced light/dark builds inline their colors and define (almost) no
- * variables, so every kind styled here gets its own --mdpv-* pair
- * (border-emphasis and title-fg differ per theme in Primer). */
 :root {
-  --mdpv-bg: #ffffff;
-  --mdpv-bg-subtle: #f6f8fa;
-  --mdpv-border: #d1d9e0;
-  --mdpv-fg: #1f2328;
-  --mdpv-fg-muted: #59636e;
-  --mdpv-success: #1a7f37;
-  --mdpv-success-border: #1a7f37;
-  --mdpv-attention: #9a6700;
-  --mdpv-accent-fg: #0969da;
-  --mdpv-accent-border: #0969da;
-  --mdpv-danger-fg: #d1242f;
-  --mdpv-danger-border: #cf222e;
-  --mdpv-done-fg: #8250df;
-  --mdpv-done-border: #8250df;
-  --mdpv-cyan: #1b7c83;
-  --mdpv-severe: #bc4c00;
-}
+  color-scheme: light dark;
 
-html[data-theme='dark'] {
-  --mdpv-bg: #0d1117;
-  --mdpv-bg-subtle: #151b23;
-  --mdpv-border: #3d444d;
-  --mdpv-fg: #f0f6fc;
-  --mdpv-fg-muted: #9198a1;
-  --mdpv-success: #3fb950;
-  --mdpv-success-border: #238636;
-  --mdpv-attention: #d29922;
-  --mdpv-accent-fg: #4493f8;
-  --mdpv-accent-border: #1f6feb;
-  --mdpv-danger-fg: #f85149;
-  --mdpv-danger-border: #da3633;
-  --mdpv-done-fg: #ab7df8;
-  --mdpv-done-border: #8957e5;
-  --mdpv-cyan: #39c5cf;
-  --mdpv-severe: #db6d28;
-}
-
-@media (prefers-color-scheme: dark) {
-  html[data-theme='auto'] {
-    --mdpv-bg: #0d1117;
-    --mdpv-bg-subtle: #151b23;
-    --mdpv-border: #3d444d;
-    --mdpv-fg: #f0f6fc;
-    --mdpv-fg-muted: #9198a1;
-    --mdpv-success: #3fb950;
-    --mdpv-success-border: #238636;
-    --mdpv-attention: #d29922;
-    --mdpv-accent-fg: #4493f8;
-    --mdpv-accent-border: #1f6feb;
-    --mdpv-danger-fg: #f85149;
-    --mdpv-danger-border: #da3633;
-    --mdpv-done-fg: #ab7df8;
-    --mdpv-done-border: #8957e5;
-    --mdpv-cyan: #39c5cf;
-    --mdpv-severe: #db6d28;
+  &[data-theme='light'] {
+    color-scheme: light;
   }
+  &[data-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  --mdpv-bg: light-dark(#ffffff, #0d1117);
+  --mdpv-bg-subtle: light-dark(#f6f8fa, #151b23);
+  --mdpv-border: light-dark(#d1d9e0, #3d444d);
+  --mdpv-fg: light-dark(#1f2328, #f0f6fc);
+  --mdpv-fg-muted: light-dark(#59636e, #9198a1);
+  --mdpv-success: light-dark(#1a7f37, #3fb950);
+  --mdpv-success-border: light-dark(#1a7f37, #238636);
+  --mdpv-attention: light-dark(#9a6700, #d29922);
+  --mdpv-accent-fg: light-dark(#0969da, #4493f8);
+  --mdpv-accent-border: light-dark(#0969da, #1f6feb);
+  --mdpv-danger-fg: light-dark(#d1242f, #f85149);
+  --mdpv-danger-border: light-dark(#cf222e, #da3633);
+  --mdpv-done-fg: light-dark(#8250df, #ab7df8);
+  --mdpv-done-border: light-dark(#8250df, #8957e5);
+  --mdpv-cyan: light-dark(#1b7c83, #39c5cf);
+  --mdpv-severe: light-dark(#bc4c00, #db6d28);
+  --mdpv-shadow: 0 8px 24px light-dark(rgb(31 35 40 / 0.16), rgb(1 4 9 / 0.6));
+  --mdpv-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  --mdpv-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  --mdpv-measure: 946px; /* text column width */
+  --mdpv-edge: 20px; /* EDGE in util.js */
+  --mdpv-ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 body {
   margin: 0;
   background-color: var(--mdpv-bg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-family: var(--mdpv-font);
 }
 
-/* --- Floating menu -------------------------------------------------------- */
-/* Next.js-devtools-style round button: drag it to any corner (persisted);
- * the menu opens toward the page from whichever corner it sits in. */
-
-#mdpv-fab {
-  position: fixed;
-  z-index: 11; /* above the outline panel, so the open menu overlays it */
-  color: var(--mdpv-fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-}
-
-#mdpv-fab[data-corner='br'] {
-  right: 20px;
-  bottom: 20px;
-}
-
-#mdpv-fab[data-corner='bl'] {
-  left: 20px;
-  bottom: 20px;
-}
-
-#mdpv-fab[data-corner='tr'] {
-  top: 20px;
-  right: 20px;
-}
-
-#mdpv-fab[data-corner='tl'] {
-  top: 20px;
-  left: 20px;
-}
-
-/* While dragging, JS drives left/top directly; while snapping, glide there.
- * (Shared by the outline panel, which corner-parks the same way.) */
-#mdpv-fab.snapping,
-#mdpv-toc.snapping {
-  transition: left 0.15s ease, top 0.15s ease;
-}
-
-/* Connection dot: on the round button as a badge, and in the menu status
- * row. Color follows the data-status attribute set on #mdpv-fab. */
-#mdpv-fab .dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--mdpv-fg-muted);
-}
-
-#mdpv-fab[data-status='live'] .dot {
-  background-color: var(--mdpv-success);
-}
-
-#mdpv-fab[data-status='reconnecting'] .dot {
-  background-color: var(--mdpv-attention);
-  animation: mdpv-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes mdpv-pulse {
-  50% {
-    opacity: 0.3;
-  }
-}
-
-#fab-toggle {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  color: var(--mdpv-fg-muted);
-  background-color: var(--mdpv-bg-subtle);
-  border: 1px solid var(--mdpv-border);
-  border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  cursor: pointer;
-  touch-action: none; /* pointer events drive the drag, even on touch */
-  user-select: none;
-}
-
-#fab-toggle:hover {
-  color: var(--mdpv-fg);
-}
-
-#mdpv-fab.dragging #fab-toggle {
-  cursor: grabbing;
-}
-
-#fab-toggle .dot {
-  position: absolute;
-  top: -1px;
-  right: -1px;
-  box-shadow: 0 0 0 2px var(--mdpv-bg);
-}
-
-#fab-menu {
-  position: absolute;
-  min-width: 180px;
-  padding: 4px;
-  background-color: var(--mdpv-bg);
-  border: 1px solid var(--mdpv-border);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-}
-
-[data-corner='br'] #fab-menu {
-  right: 0;
-  bottom: 48px;
-}
-
-[data-corner='bl'] #fab-menu {
-  left: 0;
-  bottom: 48px;
-}
-
-[data-corner='tr'] #fab-menu {
-  top: 48px;
-  right: 0;
-}
-
-[data-corner='tl'] #fab-menu {
-  top: 48px;
-  left: 0;
-}
-
-#status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  padding: 6px 10px 8px;
-  font-size: 12px;
-  color: var(--mdpv-fg-muted);
-  white-space: nowrap;
-  border-bottom: 1px solid var(--mdpv-border);
-}
-
-#fab-menu button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  width: 100%;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--mdpv-fg);
-  text-align: left;
-  white-space: nowrap;
-  background: none;
-  border: 0;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-#fab-menu button:hover {
-  background-color: var(--mdpv-bg-subtle);
-}
-
-/* Grouped rows: a muted section label above each cluster of controls. */
-.fab-group {
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--mdpv-border);
-}
-
-.fab-label {
-  padding: 4px 10px 2px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--mdpv-fg-muted);
-  text-transform: uppercase;
-}
-
-/* A non-clickable row (label + inline control), laid out like the buttons. */
-.fab-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 4px 10px;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-/* Segmented theme picker; aria-pressed marks the active option. */
-#theme-seg {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background-color: var(--mdpv-bg-subtle);
-  border: 1px solid var(--mdpv-border);
-  border-radius: 8px;
-}
-
-#fab-menu #theme-seg button {
-  width: auto;
-  padding: 2px 8px;
-  font-size: 11px;
-  color: var(--mdpv-fg-muted);
-  border-radius: 6px;
-}
-
-#fab-menu #theme-seg button:hover {
-  color: var(--mdpv-fg);
-  background: none;
-}
-
-#fab-menu #theme-seg button[aria-pressed='true'] {
-  color: var(--mdpv-fg);
-  background-color: var(--mdpv-bg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-}
-
-/* --- Outline -------------------------------------------------------------- */
-/* A floating outline that stays out of the way. Collapsed, each heading is
- * a small dash — longer for higher levels, accent-colored where you are —
- * a rail that covers next to nothing and can't be mistaken for page text.
- * Hovering it (JS adds .open after a short intent delay) or focusing into
- * it expands the rail in place into a card with the full heading list;
- * leaving collapses it back. Corner-parked like the menu button (the whole
- * rail is the drag handle); when both rest in the same corner, .mdpv-evade
- * anchors it past the button (TOC_EVADE in app.js) so the two never
- * overlap, and the shift glides via the top/bottom transition. */
-
-#mdpv-toc {
-  position: fixed;
-  z-index: 10;
-  max-width: 280px;
-  color: var(--mdpv-fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-  cursor: grab;
-  touch-action: none; /* pointer events drive the drag, even on touch */
-  user-select: none;
-}
-
-#mdpv-toc.dragging {
-  cursor: grabbing;
-}
-
-#mdpv-toc[data-corner='br'] {
-  right: 20px;
-  bottom: 20px;
-}
-
-#mdpv-toc[data-corner='bl'] {
-  left: 20px;
-  bottom: 20px;
-}
-
-#mdpv-toc[data-corner='tr'] {
-  top: 20px;
-  right: 20px;
-}
-
-#mdpv-toc[data-corner='tl'] {
-  top: 20px;
-  left: 20px;
-}
-
-/* Yield to the button in a shared corner: anchor past it instead. */
-#mdpv-toc[data-corner='br'].mdpv-evade,
-#mdpv-toc[data-corner='bl'].mdpv-evade {
-  bottom: 72px;
-}
-
-#mdpv-toc[data-corner='tr'].mdpv-evade,
-#mdpv-toc[data-corner='tl'].mdpv-evade {
-  top: 72px;
-}
-
-#mdpv-toc:not(.dragging):not(.snapping) {
-  transition: top 0.15s ease, bottom 0.15s ease;
-}
-
-/* The list is one element in both states; only its dress changes, so the
- * card surface can fade in over the rail. The scrollbar stays hidden — the
- * scroll spy keeps the active item in view. */
-#outline-list {
-  max-height: min(440px, 60vh);
-  padding: 6px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-#outline-list::-webkit-scrollbar {
-  display: none;
-}
-
-#outline-list a {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 0;
-  padding: 4px 6px;
-  font-size: 12px;
-  color: var(--mdpv-fg-muted);
-  text-decoration: none;
-  border-radius: 6px;
-}
-
-/* The collapsed dashes hug whichever screen edge they're parked against. */
-#mdpv-toc[data-corner='tl'] #outline-list a,
-#mdpv-toc[data-corner='bl'] #outline-list a {
-  justify-content: flex-start;
-}
-
-.toc-bar {
-  flex: none;
-  height: 3px;
-  border-radius: 2px;
-  background-color: color-mix(in srgb, var(--mdpv-fg-muted) 60%, transparent);
-  /* faint page-background ring so a dash reads over any content */
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mdpv-bg) 70%, transparent);
-  transition: background-color 0.15s ease; /* smooth scroll-spy handoff */
-}
-
-.outline-h1 .toc-bar {
-  width: 18px;
-}
-
-.outline-h2 .toc-bar {
-  width: 14px;
-}
-
-.outline-h3 .toc-bar {
-  width: 11px;
-}
-
-.outline-h4 .toc-bar {
-  width: 8px;
-}
-
-.outline-h5 .toc-bar {
-  width: 6px;
-}
-
-.outline-h6 .toc-bar {
-  width: 4px;
-}
-
-#outline-list a:hover .toc-bar {
-  background-color: var(--mdpv-fg);
-}
-
-#outline-list a.active .toc-bar {
-  background-color: var(--mdpv-accent-fg);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mdpv-bg) 70%, transparent),
-    0 0 6px color-mix(in srgb, var(--mdpv-accent-fg) 50%, transparent);
-}
-
-.toc-text {
-  display: none;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* Expanded: the rail dresses up as a card and the labels take over. The
- * background layers are scroll shadows (Lea Verou's local-attachment
- * technique): soft inner shading appears at an edge only while more rows
- * hide past it, so a clipped list reads as scrollable. */
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list {
-  padding: 4px;
-  background-color: var(--mdpv-bg);
-  background-image:
-    linear-gradient(var(--mdpv-bg) 30%, transparent),
-    linear-gradient(transparent, var(--mdpv-bg) 70%),
-    radial-gradient(farthest-side at 50% 0, color-mix(in srgb, var(--mdpv-fg) 20%, transparent), transparent),
-    radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--mdpv-fg) 20%, transparent), transparent);
-  background-position:
-    0 0,
-    0 100%,
-    0 0,
-    0 100%;
-  background-size:
-    100% 24px,
-    100% 24px,
-    100% 12px,
-    100% 12px;
-  background-repeat: no-repeat;
-  background-attachment: local, local, scroll, scroll;
-  border-color: var(--mdpv-border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list a {
-  justify-content: flex-start;
-  padding: 3px 10px 3px 12px;
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) .toc-bar {
-  display: none;
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) .toc-text {
-  display: block;
-  animation: mdpv-toc-reveal 0.18s ease;
-}
-
-/* Labels slide in from the parked edge as the card opens. */
-@keyframes mdpv-toc-reveal {
-  from {
-    opacity: 0;
-    transform: translateX(var(--mdpv-toc-slide, 6px));
-  }
-}
-
-#mdpv-toc[data-corner='tl'],
-#mdpv-toc[data-corner='bl'] {
-  --mdpv-toc-slide: -6px;
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list a:hover {
-  color: var(--mdpv-fg);
-  background-color: var(--mdpv-bg-subtle);
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list a.active {
-  color: var(--mdpv-accent-fg);
-  background-color: color-mix(in srgb, var(--mdpv-accent-fg) 12%, transparent);
-}
-
-/* Heading levels read two ways when expanded: typographic tier (h1
- * heaviest, fading to muted) and a 12px indent per level. */
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list .outline-h1 {
-  font-weight: 600;
-  color: var(--mdpv-fg);
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list .outline-h2 {
-  padding-left: 24px;
-  font-weight: 500;
-  color: color-mix(in srgb, var(--mdpv-fg) 60%, var(--mdpv-fg-muted));
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list .outline-h3 {
-  padding-left: 36px;
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list .outline-h4 {
-  padding-left: 48px;
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list .outline-h5 {
-  padding-left: 60px;
-}
-
-#mdpv-toc:not(.pointer-away):is(.open, :focus-within) #outline-list .outline-h6 {
-  padding-left: 72px;
-}
-
-/* Mini switch shown on toggle rows; aria-pressed drives the state. */
-.fab-switch {
-  position: relative;
-  flex: none;
-  width: 24px;
-  height: 14px;
-  border-radius: 999px;
-  background-color: var(--mdpv-border);
-  transition: background-color 0.15s;
-}
-
-.fab-switch::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background-color: var(--mdpv-bg);
-  transition: left 0.15s;
-}
-
-[aria-pressed='true'] .fab-switch {
-  background-color: var(--mdpv-success);
-}
-
-[aria-pressed='true'] .fab-switch::after {
-  left: 12px;
-}
-
-/* --- Content ------------------------------------------------------------ */
+/* --- Content column -------------------------------------------------------- */
 
 main {
-  max-width: 1012px;
+  max-width: calc(var(--mdpv-measure) + 66px); /* + .markdown-body padding and border */
   margin: 0 auto;
   padding: 24px 16px 64px;
-}
 
-body.mdpv-wide main {
-  max-width: none;
+  :root[data-wide='1'] & {
+    max-width: none;
+  }
+  /* A gutter for the outline rail, so the page never runs under it (wide
+   * mode, narrower windows). Centered layouts have room to spare anyway. */
+  @media (min-width: 768px) {
+    :root[data-outline='1'] & {
+      padding-inline: 64px;
+    }
+  }
 }
 
 .markdown-body {
@@ -595,273 +88,833 @@ body.mdpv-wide main {
   color: var(--mdpv-fg-muted);
 }
 
-/* --- GitHub markup details not covered by github-markdown-css ----------- */
+/* --- Shared chrome ------------------------------------------------------------ */
 
-/* GitHub's "Footnotes" heading is screen-reader only; the stylesheet assumes
- * the host page provides .sr-only. */
-.markdown-body .sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  word-wrap: normal;
-  border: 0;
+/* Chrome rows set their own display; `hidden` must still win. */
+:is(#fab-menu, #mdpv-keys) [hidden] {
+  display: none !important;
 }
 
-/* markdown-it wraps highlighted code without an .hljs container class; if a
- * raw <code class="hljs"> block slips through, neutralize the theme's own
- * padding/background so GitHub's <pre> styling wins. */
-.markdown-body pre code.hljs {
-  padding: 0;
-  background: transparent;
+#mdpv-fab,
+#mdpv-toc,
+#fab-menu,
+#mdpv-keys {
+  color: var(--mdpv-fg);
+  font-family: var(--mdpv-font);
 }
 
-/* The block the editor cursor is on (follow mode): an accent bar in the
- * left gutter, no layout shift. */
-.markdown-body .mdpv-cursor {
+/* Corner parking: data-fab / data-toc hold tl|tr|bl|br. */
+#mdpv-fab,
+#mdpv-toc {
+  position: fixed;
+  touch-action: none; /* pointer events drive the drag, even on touch */
+  user-select: none;
+
+  /* While dragging, JS drives inset directly; while snapping, it glides. */
+  &.snapping {
+    transition: inset 0.15s var(--mdpv-ease);
+  }
+}
+
+:root[data-fab^='t'] #mdpv-fab {
+  top: var(--mdpv-edge);
+}
+:root[data-fab^='b'] #mdpv-fab {
+  bottom: var(--mdpv-edge);
+}
+:root[data-fab$='l'] #mdpv-fab {
+  left: var(--mdpv-edge);
+}
+:root[data-fab$='r'] #mdpv-fab {
+  right: var(--mdpv-edge);
+}
+
+/* Connection dot: a badge on the button and the menu's status row. */
+:is(#fab-toggle, .menu-status) .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--mdpv-fg-muted);
+
+  :root[data-status='live'] & {
+    background-color: var(--mdpv-success);
+  }
+  :root[data-status='reconnecting'] & {
+    background-color: var(--mdpv-attention);
+    animation: mdpv-pulse 1.2s ease-in-out infinite;
+  }
+  :root[data-status='ended'] & {
+    background-color: var(--mdpv-danger-fg);
+  }
+}
+
+@keyframes mdpv-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+#fab-menu kbd {
+  font: 11px/1 var(--mdpv-mono);
+  color: var(--mdpv-fg-muted);
+}
+
+/* --- Floating button ------------------------------------------------------------ */
+
+#mdpv-fab {
+  z-index: 11;
+}
+
+#fab-toggle {
   position: relative;
-}
-
-.markdown-body .mdpv-cursor::before {
-  content: '';
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: -16px;
-  width: 3px;
-  background-color: var(--mdpv-accent-border);
-  border-radius: 3px;
-  opacity: 0.7;
-}
-
-/* Hover copy button on code blocks, GitHub-style. The wrapper anchors the
- * button to the block instead of the (horizontally scrolling) <pre>, and
- * takes over the pre's bottom margin so *:last-child rules keep working. */
-.markdown-body .mdpv-pre {
-  position: relative;
-  margin-bottom: 16px;
-}
-
-.markdown-body .mdpv-pre > pre {
-  margin-bottom: 0;
-}
-
-.markdown-body .mdpv-pre > .mdpv-copy {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
   padding: 0;
   color: var(--mdpv-fg-muted);
   background-color: var(--mdpv-bg-subtle);
   border: 1px solid var(--mdpv-border);
-  border-radius: 6px;
-  opacity: 0;
-  transition: opacity 0.1s;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px light-dark(rgb(31 35 40 / 0.15), rgb(1 4 9 / 0.5));
   cursor: pointer;
+  transition: color 0.15s, transform 0.15s var(--mdpv-ease);
+
+  &:hover {
+    color: var(--mdpv-fg);
+  }
+  &:active {
+    transform: scale(0.94);
+  }
+  #mdpv-fab.dragging & {
+    cursor: grabbing;
+  }
+  .dot {
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    box-shadow: 0 0 0 2px var(--mdpv-bg);
+  }
 }
 
-.markdown-body .mdpv-pre:hover > .mdpv-copy,
-.markdown-body .mdpv-pre > .mdpv-copy:focus-visible {
-  opacity: 1;
-}
+/* --- Menu (popover) --------------------------------------------------------------- */
+/* Opens from whichever corner the button is parked in, toward the page. */
 
-.markdown-body .mdpv-copy:hover {
-  color: var(--mdpv-fg);
-}
-
-.markdown-body .mdpv-copy.mdpv-copied {
-  color: var(--mdpv-success);
-  border-color: var(--mdpv-success-border);
-  opacity: 1;
-}
-
-/* Obsidian callout types beyond GitHub's five alerts, drawn in the same
- * visual language (github-markdown-css only ships note/tip/important/
- * warning/caution). All colors come from the --mdpv-* variables at the top —
- * see the note there on why the vendored variables can't be used. */
-.markdown-body .markdown-alert.markdown-alert-info,
-.markdown-body .markdown-alert.markdown-alert-todo {
-  border-left-color: var(--mdpv-accent-border);
-}
-
-.markdown-body .markdown-alert.markdown-alert-info .markdown-alert-title,
-.markdown-body .markdown-alert.markdown-alert-todo .markdown-alert-title {
-  color: var(--mdpv-accent-fg);
-}
-
-.markdown-body .markdown-alert.markdown-alert-abstract {
-  border-left-color: var(--mdpv-cyan);
-}
-
-.markdown-body .markdown-alert.markdown-alert-abstract .markdown-alert-title {
-  color: var(--mdpv-cyan);
-}
-
-.markdown-body .markdown-alert.markdown-alert-success {
-  border-left-color: var(--mdpv-success-border);
-}
-
-.markdown-body .markdown-alert.markdown-alert-success .markdown-alert-title {
-  color: var(--mdpv-success);
-}
-
-.markdown-body .markdown-alert.markdown-alert-question {
-  border-left-color: var(--mdpv-severe);
-}
-
-.markdown-body .markdown-alert.markdown-alert-question .markdown-alert-title {
-  color: var(--mdpv-severe);
-}
-
-.markdown-body .markdown-alert.markdown-alert-failure,
-.markdown-body .markdown-alert.markdown-alert-danger,
-.markdown-body .markdown-alert.markdown-alert-bug {
-  border-left-color: var(--mdpv-danger-border);
-}
-
-.markdown-body .markdown-alert.markdown-alert-failure .markdown-alert-title,
-.markdown-body .markdown-alert.markdown-alert-danger .markdown-alert-title,
-.markdown-body .markdown-alert.markdown-alert-bug .markdown-alert-title {
-  color: var(--mdpv-danger-fg);
-}
-
-.markdown-body .markdown-alert.markdown-alert-example {
-  border-left-color: var(--mdpv-done-border);
-}
-
-.markdown-body .markdown-alert.markdown-alert-example .markdown-alert-title {
-  color: var(--mdpv-done-fg);
-}
-
-.markdown-body .markdown-alert.markdown-alert-quote {
-  border-left-color: var(--mdpv-fg-muted);
-}
-
-.markdown-body .markdown-alert.markdown-alert-quote .markdown-alert-title {
-  color: var(--mdpv-fg-muted);
-}
-
-/* Foldable callouts ([!type]- collapsed, [!type]+ expanded) are <details>
- * with the title as <summary>; a trailing chevron flips with the state. */
-.markdown-body summary.markdown-alert-title {
-  cursor: pointer;
-  list-style: none;
-}
-
-.markdown-body summary.markdown-alert-title::-webkit-details-marker {
-  display: none;
-}
-
-.markdown-body details.markdown-alert[open] > summary.markdown-alert-title {
-  margin-bottom: 16px; /* the margin a <p> title would have */
-}
-
-.markdown-body .markdown-alert .mdpv-fold {
-  margin-left: 8px;
-  transition: transform 0.15s ease;
-  transform: rotate(-90deg);
-}
-
-.markdown-body details.markdown-alert[open] .mdpv-fold {
-  transform: none;
-}
-
-/* Display math ($$…$$ / ```math): centered like GitHub, scrollable if wide. */
-.markdown-body .mdpv-math-display {
-  margin-bottom: 16px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  text-align: center;
-}
-
-.markdown-body .mdpv-math-display .katex-display {
+#fab-menu {
+  position: fixed;
+  inset: auto;
+  min-width: 220px;
   margin: 0;
-}
-
-/* Mermaid diagrams: centered block, like GitHub's iframe rendering. */
-.markdown-body .mdpv-mermaid {
-  position: relative; /* anchors the pan/zoom controls */
-  display: flex;
-  justify-content: center;
-  margin-bottom: 16px;
-  overflow-x: auto;
-}
-
-/* Pan/zoom: hover controls; while zoomed the container clips and the
- * diagram drags. */
-.markdown-body .mdpv-mermaid.mdpv-zoomed {
-  overflow: hidden;
-}
-
-.markdown-body .mdpv-mermaid.mdpv-zoomed svg {
-  cursor: grab;
-}
-
-.mdpv-diagram-controls {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  gap: 4px;
+  padding: 4px;
+  background-color: var(--mdpv-bg);
+  border: 1px solid var(--mdpv-border);
+  border-radius: 12px;
+  box-shadow: var(--mdpv-shadow);
   opacity: 0;
-  transition: opacity 0.1s;
+  transform: scale(0.96);
+  transition:
+    opacity 0.14s var(--mdpv-ease),
+    transform 0.14s var(--mdpv-ease),
+    overlay 0.14s allow-discrete,
+    display 0.14s allow-discrete;
+
+  &:popover-open {
+    opacity: 1;
+    transform: none;
+
+    @starting-style {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+
+  :root[data-fab^='t'] & {
+    top: calc(var(--mdpv-edge) + 48px);
+  }
+  :root[data-fab^='b'] & {
+    bottom: calc(var(--mdpv-edge) + 48px);
+  }
+  :root[data-fab$='l'] & {
+    left: var(--mdpv-edge);
+  }
+  :root[data-fab$='r'] & {
+    right: var(--mdpv-edge);
+  }
+  :root[data-fab='tl'] & {
+    transform-origin: top left;
+  }
+  :root[data-fab='tr'] & {
+    transform-origin: top right;
+  }
+  :root[data-fab='bl'] & {
+    transform-origin: bottom left;
+  }
+  :root[data-fab='br'] & {
+    transform-origin: bottom right;
+  }
+
+  > button,
+  .menu-group > button,
+  .menu-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 30px;
+    padding: 4px 10px;
+    font: 13px var(--mdpv-font);
+    color: var(--mdpv-fg);
+    text-align: left;
+    white-space: nowrap;
+    background: none;
+    border: 0;
+    border-radius: 8px;
+    box-sizing: border-box;
+  }
+
+  > button,
+  .menu-group > button {
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background-color: var(--mdpv-bg-subtle);
+      outline: none;
+    }
+  }
+
+  /* The key hint sits right before the switch / control. */
+  kbd {
+    margin-left: auto;
+  }
 }
 
-.markdown-body .mdpv-mermaid:hover .mdpv-diagram-controls,
-.markdown-body .mdpv-mermaid.mdpv-zoomed .mdpv-diagram-controls {
-  opacity: 1;
-}
-
-.mdpv-diagram-controls button {
+.menu-status {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  font-size: 12px;
   color: var(--mdpv-fg-muted);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--mdpv-border);
+}
+
+.menu-group {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--mdpv-border);
+}
+
+.menu-label {
+  padding: 4px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--mdpv-fg-muted);
+  text-transform: uppercase;
+}
+
+#keys-button {
+  margin-top: 4px;
+  color: var(--mdpv-fg-muted) !important;
+}
+
+/* Switch: role="switch" + aria-checked. */
+#fab-menu .switch {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 15px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background-color: var(--mdpv-border);
+  transition: background-color 0.15s;
+
+  button:not(:has(kbd)) > & {
+    margin-left: auto;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background-color: var(--mdpv-bg);
+    transition: translate 0.15s var(--mdpv-ease);
+  }
+
+  [aria-checked='true'] > & {
+    background-color: var(--mdpv-success);
+
+    &::after {
+      translate: 11px 0;
+    }
+  }
+}
+
+/* Segmented theme picker: role="radio" + aria-checked. */
+#fab-menu .segmented {
+  display: flex;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 2px;
   background-color: var(--mdpv-bg-subtle);
   border: 1px solid var(--mdpv-border);
-  border-radius: 6px;
-  cursor: pointer;
+  border-radius: 8px;
+
+  button {
+    padding: 2px 8px;
+    font: 11px var(--mdpv-font);
+    color: var(--mdpv-fg-muted);
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--mdpv-fg);
+    }
+    &[aria-checked='true'] {
+      color: var(--mdpv-fg);
+      background-color: var(--mdpv-bg);
+      box-shadow: 0 1px 2px light-dark(rgb(31 35 40 / 0.15), rgb(1 4 9 / 0.6));
+    }
+  }
 }
 
-.mdpv-diagram-controls button:hover {
-  color: var(--mdpv-fg);
+/* --- Keyboard shortcuts card (popover) --------------------------------------------- */
+
+#mdpv-keys {
+  min-width: 300px;
+  padding: 16px 20px 18px;
+  background-color: var(--mdpv-bg);
+  border: 1px solid var(--mdpv-border);
+  border-radius: 12px;
+  box-shadow: var(--mdpv-shadow);
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 0.14s var(--mdpv-ease),
+    transform 0.14s var(--mdpv-ease),
+    overlay 0.14s allow-discrete,
+    display 0.14s allow-discrete;
+
+  &:popover-open {
+    opacity: 1;
+    transform: none;
+
+    @starting-style {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
+  &::backdrop {
+    background: light-dark(rgb(31 35 40 / 0.08), rgb(1 4 9 / 0.4));
+  }
+
+  h2 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center; /* descriptions on the key caps' center line */
+    gap: 8px 20px;
+    margin: 0;
+    font-size: 13px;
+  }
+
+  dt {
+    white-space: nowrap;
+    color: var(--mdpv-fg-muted);
+  }
+
+  dd {
+    margin: 0;
+  }
+
+  kbd {
+    display: inline-block;
+    min-width: 1.4em;
+    padding: 3px 5px;
+    text-align: center;
+    color: var(--mdpv-fg);
+    background-color: var(--mdpv-bg-subtle);
+    border: 1px solid var(--mdpv-border);
+    border-bottom-width: 2px;
+    border-radius: 6px;
+  }
 }
 
-/* Diagram source shown as-is: not yet typeset, or failed to parse. */
-.markdown-body .mdpv-mermaid:not(:has(svg)) {
-  display: block;
-  padding: 16px;
-  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 85%;
-  white-space: pre-wrap;
-  background-color: var(--mdpv-bg-subtle);
-  border-radius: 6px;
+/* --- Outline -------------------------------------------------------------------- */
+/* Collapsed: one dash per heading (longer for higher levels, the current
+ * section accented), hugging the edge it is parked against. Hover (after an
+ * intent delay, JS adds .open) or focus expands it in place into a card with
+ * the full list; leaving collapses it. In the button's corner it parks past
+ * the button instead of under it. */
+
+#mdpv-toc {
+  z-index: 10;
+  max-width: 280px;
+  cursor: grab;
+
+  &.dragging {
+    cursor: grabbing;
+  }
+  &:not(.dragging, .snapping) {
+    transition: inset 0.15s var(--mdpv-ease);
+  }
 }
 
-.markdown-body .mdpv-mermaid.mdpv-error {
-  border-left: 4px solid var(--mdpv-attention);
+:root[data-toc^='t'] #mdpv-toc {
+  top: var(--mdpv-edge);
+}
+:root[data-toc^='b'] #mdpv-toc {
+  bottom: var(--mdpv-edge);
+}
+:root[data-toc$='l'] #mdpv-toc {
+  left: var(--mdpv-edge);
+}
+:root[data-toc$='r'] #mdpv-toc {
+  right: var(--mdpv-edge);
+}
+:root:is([data-fab='tl'][data-toc='tl'], [data-fab='tr'][data-toc='tr']) #mdpv-toc {
+  top: calc(var(--mdpv-edge) + 52px);
+}
+:root:is([data-fab='bl'][data-toc='bl'], [data-fab='br'][data-toc='br']) #mdpv-toc {
+  bottom: calc(var(--mdpv-edge) + 52px);
+}
+
+/* One element in both states; only its dress changes. The scrollbar stays
+ * hidden — the spy keeps the active item in view. */
+#outline-list {
+  max-height: min(440px, 60vh);
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  /* Page-colored even as a rail: it masks what it floats over (a card
+   * edge, text on narrow windows) instead of crossing it. */
+  background-color: var(--mdpv-bg);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  a {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 12px;
+    color: var(--mdpv-fg-muted);
+    text-decoration: none;
+    border-radius: 6px;
+
+    :root[data-toc$='l'] & {
+      justify-content: flex-start;
+    }
+    &:hover .toc-bar {
+      background-color: var(--mdpv-fg);
+    }
+  }
+}
+
+.toc-bar {
+  flex: none;
+  height: 3px;
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--mdpv-fg-muted) 60%, transparent);
+  /* faint page-colored ring so a dash reads over any content */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mdpv-bg) 70%, transparent);
+  transition: background-color 0.15s ease;
+
+  .outline-h1 & {
+    width: 18px;
+  }
+  .outline-h2 & {
+    width: 14px;
+  }
+  .outline-h3 & {
+    width: 11px;
+  }
+  .outline-h4 & {
+    width: 8px;
+  }
+  .outline-h5 & {
+    width: 6px;
+  }
+  .outline-h6 & {
+    width: 4px;
+  }
+  .active & {
+    background-color: var(--mdpv-accent-fg);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--mdpv-bg) 70%, transparent),
+      0 0 6px color-mix(in srgb, var(--mdpv-accent-fg) 50%, transparent);
+  }
+}
+
+.toc-text {
+  display: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Expanded. The background layers are scroll shadows (local attachment):
+ * soft shading shows at an edge only while more rows hide past it. */
+#mdpv-toc:not(.pointer-away):is(.open, :focus-within) {
+  --mdpv-toc-slide: 6px;
+
+  :root[data-toc$='l'] & {
+    --mdpv-toc-slide: -6px;
+  }
+
+  #outline-list {
+    padding: 4px;
+    background-color: var(--mdpv-bg);
+    background-image:
+      linear-gradient(var(--mdpv-bg) 30%, transparent),
+      linear-gradient(transparent, var(--mdpv-bg) 70%),
+      radial-gradient(farthest-side at 50% 0, color-mix(in srgb, var(--mdpv-fg) 20%, transparent), transparent),
+      radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--mdpv-fg) 20%, transparent), transparent);
+    background-position:
+      0 0,
+      0 100%,
+      0 0,
+      0 100%;
+    background-size:
+      100% 24px,
+      100% 24px,
+      100% 12px,
+      100% 12px;
+    background-repeat: no-repeat;
+    background-attachment: local, local, scroll, scroll;
+    border-color: var(--mdpv-border);
+    box-shadow: var(--mdpv-shadow);
+
+    a {
+      justify-content: flex-start;
+      padding: 3px 10px 3px 12px;
+
+      &:hover {
+        color: var(--mdpv-fg);
+        background-color: var(--mdpv-bg-subtle);
+      }
+      &.active {
+        color: var(--mdpv-accent-fg);
+        background-color: color-mix(in srgb, var(--mdpv-accent-fg) 12%, transparent);
+      }
+    }
+
+    /* Levels read as typographic tiers (h1 heaviest) over a 12px indent. */
+    .outline-h1 {
+      font-weight: 600;
+      color: var(--mdpv-fg);
+    }
+    .outline-h2 {
+      padding-left: 24px;
+      font-weight: 500;
+      color: color-mix(in srgb, var(--mdpv-fg) 60%, var(--mdpv-fg-muted));
+    }
+    .outline-h3 {
+      padding-left: 36px;
+    }
+    .outline-h4 {
+      padding-left: 48px;
+    }
+    .outline-h5 {
+      padding-left: 60px;
+    }
+    .outline-h6 {
+      padding-left: 72px;
+    }
+  }
+
+  .toc-bar {
+    display: none;
+  }
+
+  .toc-text {
+    display: block;
+    animation: mdpv-toc-reveal 0.18s ease;
+  }
+}
+
+/* Labels slide in from the parked edge as the card opens. */
+@keyframes mdpv-toc-reveal {
+  from {
+    opacity: 0;
+    transform: translateX(var(--mdpv-toc-slide, 6px));
+  }
+}
+
+/* --- GitHub markup details github-markdown-css leaves to the host ---------------- */
+
+.markdown-body {
+  /* GitHub's "Footnotes" heading is screen-reader only. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    word-wrap: normal;
+    border: 0;
+  }
+
+  /* The block under the editor cursor (follow mode): a gutter bar, no
+   * layout shift. */
+  .mdpv-cursor {
+    position: relative;
+
+    &::before {
+      content: '';
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      left: -16px;
+      width: 3px;
+      background-color: var(--mdpv-accent-border);
+      border-radius: 3px;
+      opacity: 0.7;
+    }
+  }
+
+  /* Double-click → jump to source: the block confirms with a brief glow. */
+  .mdpv-flash {
+    animation: mdpv-flash 0.7s var(--mdpv-ease);
+  }
+
+  /* Hover copy button. The wrapper anchors it to the block rather than the
+   * horizontally scrolling <pre>, and takes over the pre's bottom margin. */
+  .mdpv-pre {
+    position: relative;
+    margin-bottom: 16px;
+
+    > pre {
+      margin-bottom: 0;
+    }
+    &:hover > .mdpv-copy {
+      opacity: 1;
+    }
+  }
+
+  .mdpv-copy,
+  .mdpv-diagram-controls button {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: var(--mdpv-fg-muted);
+    background-color: var(--mdpv-bg-subtle);
+    border: 1px solid var(--mdpv-border);
+    border-radius: 6px;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--mdpv-fg);
+    }
+  }
+
+  .mdpv-copy {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    opacity: 0;
+    transition: opacity 0.1s;
+
+    &:focus-visible {
+      opacity: 1;
+    }
+    &.mdpv-copied {
+      color: var(--mdpv-success);
+      border-color: var(--mdpv-success-border);
+      opacity: 1;
+    }
+  }
+
+  /* Obsidian #tags, as GitHub topic pills. */
+  .mdpv-tag {
+    padding: 0.15em 0.6em;
+    font-size: 0.85em;
+    font-weight: 500;
+    color: var(--mdpv-accent-fg);
+    white-space: nowrap;
+    background-color: color-mix(in srgb, var(--mdpv-accent-fg) 12%, transparent);
+    border-radius: 2em;
+  }
+
+  /* Obsidian callout kinds beyond GitHub's five, in the same visual
+   * language (github-markdown-css styles note/tip/important/warning/caution). */
+  .markdown-alert {
+    &.markdown-alert-info,
+    &.markdown-alert-todo {
+      --mdpv-callout: var(--mdpv-accent-fg);
+      --mdpv-callout-border: var(--mdpv-accent-border);
+    }
+    &.markdown-alert-abstract {
+      --mdpv-callout: var(--mdpv-cyan);
+      --mdpv-callout-border: var(--mdpv-cyan);
+    }
+    &.markdown-alert-success {
+      --mdpv-callout: var(--mdpv-success);
+      --mdpv-callout-border: var(--mdpv-success-border);
+    }
+    &.markdown-alert-question {
+      --mdpv-callout: var(--mdpv-severe);
+      --mdpv-callout-border: var(--mdpv-severe);
+    }
+    &.markdown-alert-failure,
+    &.markdown-alert-danger,
+    &.markdown-alert-bug {
+      --mdpv-callout: var(--mdpv-danger-fg);
+      --mdpv-callout-border: var(--mdpv-danger-border);
+    }
+    &.markdown-alert-example {
+      --mdpv-callout: var(--mdpv-done-fg);
+      --mdpv-callout-border: var(--mdpv-done-border);
+    }
+    &.markdown-alert-quote {
+      --mdpv-callout: var(--mdpv-fg-muted);
+      --mdpv-callout-border: var(--mdpv-fg-muted);
+    }
+
+    &:where(
+        .markdown-alert-info,
+        .markdown-alert-todo,
+        .markdown-alert-abstract,
+        .markdown-alert-success,
+        .markdown-alert-question,
+        .markdown-alert-failure,
+        .markdown-alert-danger,
+        .markdown-alert-bug,
+        .markdown-alert-example,
+        .markdown-alert-quote
+      ) {
+      border-left-color: var(--mdpv-callout-border);
+
+      .markdown-alert-title {
+        color: var(--mdpv-callout);
+      }
+    }
+
+    /* Foldable callouts ([!type]- / [!type]+) are <details>; the chevron
+     * flips with the state. */
+    summary.markdown-alert-title {
+      cursor: pointer;
+      list-style: none;
+
+      &::-webkit-details-marker {
+        display: none;
+      }
+    }
+
+    .mdpv-fold {
+      margin-left: 8px;
+      transform: rotate(-90deg);
+      transition: transform 0.15s ease;
+    }
+  }
+
+  details.markdown-alert[open] {
+    > summary.markdown-alert-title {
+      margin-bottom: 16px; /* the margin a <p> title would have */
+    }
+    .mdpv-fold {
+      transform: none;
+    }
+  }
+
+  /* Display math: centered like GitHub, scrollable if wide. */
+  .mdpv-math-display {
+    margin-bottom: 16px;
+    overflow: auto hidden;
+    text-align: center;
+
+    .katex-display {
+      margin: 0;
+    }
+  }
+
+  /* Mermaid: centered block; pan/zoom controls on hover. */
+  .mdpv-mermaid {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 16px;
+    overflow-x: auto;
+
+    &.mdpv-zoomed {
+      overflow: hidden;
+
+      svg {
+        cursor: grab;
+      }
+    }
+
+    /* Source shown as-is: not yet typeset, or failed to parse. */
+    &:not(:has(svg)) {
+      display: block;
+      padding: 16px;
+      font-family: var(--mdpv-mono);
+      font-size: 85%;
+      white-space: pre-wrap;
+      background-color: var(--mdpv-bg-subtle);
+      border-radius: 6px;
+    }
+    &.mdpv-error {
+      border-left: 4px solid var(--mdpv-attention);
+    }
+    &:hover .mdpv-diagram-controls,
+    &.mdpv-zoomed .mdpv-diagram-controls {
+      opacity: 1;
+    }
+  }
+
+  .mdpv-diagram-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.1s;
+
+    button {
+      width: 26px;
+      height: 26px;
+    }
+  }
+}
+
+@keyframes mdpv-flash {
+  from {
+    background-color: color-mix(in srgb, var(--mdpv-accent-fg) 18%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--mdpv-accent-fg) 18%, transparent);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #mdpv-fab.snapping,
-  #mdpv-toc.snapping,
-  #mdpv-toc:not(.dragging):not(.snapping),
-  #outline-list {
-    transition: none;
-  }
-
-  #mdpv-toc:not(.pointer-away):is(.open, :focus-within) .toc-text {
-    animation: none;
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
   }
 }
 
