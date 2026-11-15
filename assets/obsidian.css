@@ -45,7 +45,7 @@
   --mdpv-accent-border: var(--interactive-accent);
   --mdpv-font: var(--font-text);
   --mdpv-mono: var(--font-monospace);
-  --mdpv-measure: 700px; /* --file-line-width */
+  --mdpv-measure: 800px; /* --file-line-width is 700px; widened toward GitHub's 946px */
 
   & ::selection {
     background-color: var(--text-selection);
@@ -89,8 +89,10 @@
     :not(h1, h2, h3, h4, h5, h6) + :is(h1, h2, h3, h4, h5, h6) {
       margin-top: 2.5rem;
     }
+    /* h1 at Publish's --page-title-size (GitHub's too), not --h1-size
+     * (1.618em): in a markdown file it is usually the title. */
     h1 {
-      font-size: 1.618em;
+      font-size: 2em;
       font-weight: 700;
       line-height: 1.2;
     }
@@ -162,7 +164,13 @@
     }
     pre,
     pre > code {
-      white-space: pre-wrap; /* reading view wraps code */
+      white-space: pre-wrap; /* reading view wraps code, long tokens too */
+      overflow-wrap: break-word;
+    }
+
+    .footnotes {
+      font-size: 0.875em; /* --footnote-size */
+      color: inherit;
     }
 
     th {
@@ -271,10 +279,16 @@
       border: 0;
       border-radius: 4px;
 
+      /* A wrapped title keeps its icons on the first line. */
       .markdown-alert-title {
+        align-items: flex-start;
         font-weight: 600;
         line-height: 1.3;
         color: var(--callout);
+
+        .octicon {
+          margin-top: calc((1lh - 16px) / 2);
+        }
       }
       &:is(.markdown-alert-note, .markdown-alert-info, .markdown-alert-todo) {
         --callout: var(--color-blue);
