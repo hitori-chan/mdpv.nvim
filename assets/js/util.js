@@ -27,10 +27,17 @@ export const pref = (key) => root.dataset[key];
 export const flag = (key) => root.dataset[key] === '1';
 export const onPref = (key, fn) => (listeners[key] ??= []).push(fn);
 
+// Preferences that reflow the page: applying one keeps the reader's place.
+const REFLOW = new Set(['style', 'wide', 'outline']);
+
 export function setPref(key, value, persist = true) {
   if (root.dataset[key] === value) return;
-  root.dataset[key] = value;
-  for (const fn of listeners[key] ?? []) fn(value);
+  const apply = () => {
+    root.dataset[key] = value;
+    for (const fn of listeners[key] ?? []) fn(value);
+  };
+  if (REFLOW.has(key)) keepPlace(apply);
+  else apply();
   if (persist) post('prefs', { [key]: value });
 }
 
@@ -59,6 +66,30 @@ export const ANCHOR = 0.35;
 
 /** Document y of an element's top edge. */
 export const pageY = (el) => el.getBoundingClientRect().top + window.scrollY;
+
+/** Run `change` (a reflow) without moving what the reader is looking at: the
+ *  block under the viewport anchor stays put, at the same point within it.
+ *  Browser scroll anchoring can't: margins and widths change around it. */
+function keepPlace(change) {
+  const probe = innerHeight * ANCHOR;
+  let el = null;
+  if (scrollY > 0) {
+    // Last visible block starting above the anchor (document order).
+    for (const b of document.querySelectorAll('#content [data-source-line]')) {
+      const r = b.getBoundingClientRect();
+      if (r.height === 0) continue; // folded away
+      if (r.top > probe) break;
+      el = b;
+    }
+  }
+  const before = el?.getBoundingClientRect();
+  change();
+  if (!before) return;
+  const after = el.getBoundingClientRect();
+  const into = Math.min(probe - before.top, before.height) / before.height;
+  const past = Math.max(0, probe - before.bottom); // anchor in the gap below it
+  glide(scrollY + after.top + into * after.height + past - probe, 'instant');
+}
 
 /** Rightmost index in `els` whose measure(el) <= limit, or -1. */
 export function bisect(els, limit, measure) {

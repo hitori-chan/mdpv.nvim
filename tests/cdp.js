@@ -14,7 +14,9 @@
 //                                          <line>) and exit 0.
 //   node tests/cdp.js keys <url>           print LOADED, then drive the
 //                                          keyboard layer: t (THEME), s
-//                                          (STYLE), ]] (HEADING), ? (HELP).
+//                                          (STYLE; PLACE <column, place
+//                                          drift> before and after), ]]
+//                                          (HEADING), ? (HELP).
 //   node tests/cdp.js follow <url>         print LOADED, wait for the page to
 //                                          switch to second.md (SWITCHED).
 //   node tests/cdp.js dump <url>           print LOADED, wait for the lazy
@@ -287,6 +289,26 @@ async function run(wsUrl) {
     const theme = await until("document.documentElement.dataset.theme === 'light' && 'light'");
     if (!theme) return die('FAIL: t did not cycle the theme', 1);
     console.log('THEME ' + theme);
+    // Read from the Callouts heading down: switching styles must keep the
+    // text column, and the reading line (35% down) must stay on the same
+    // point of the last block above it: as far into it, or as far below it.
+    // Block heights differ by machine (fonts), so its top may move. Prints
+    // <column left,width,drift px>; drift under 1px reads 0 (scroll offsets
+    // snap to whole pixels).
+    const place = `(() => {
+      const probe = innerHeight * 0.35;
+      const col = document.querySelector('#content > p').getBoundingClientRect();
+      window.mdpvAnchor ??= [...document.querySelectorAll('#content [data-source-line]')]
+        .findLast((b) => b.getBoundingClientRect().height && b.getBoundingClientRect().top <= probe);
+      const a = window.mdpvAnchor.getBoundingClientRect();
+      const into = Math.min(probe - a.top, a.height) / a.height;
+      const past = Math.max(0, probe - a.bottom);
+      window.mdpvPlace ??= { into, past };
+      const drift = Math.abs(into - window.mdpvPlace.into) * a.height + Math.abs(past - window.mdpvPlace.past);
+      return [Math.round(col.left), Math.round(col.width), Math.trunc(drift)].join(',');
+    })()`;
+    await evaluate("window.scrollTo({ top: document.getElementById('callouts').getBoundingClientRect().top + scrollY, behavior: 'instant' })");
+    const before = await evaluate(place);
     await press('s');
     // The style sheet applies: Obsidian drops the card border.
     const style = await until(
@@ -295,6 +317,7 @@ async function run(wsUrl) {
     );
     if (!style) return die('FAIL: s did not cycle the style', 1);
     console.log('STYLE ' + style);
+    console.log(`PLACE ${before} ${await evaluate(place)}`);
     await press(']');
     await press(']');
     const hash = await until("location.hash.length > 1 && scrollY > 0 && location.hash");

@@ -110,7 +110,7 @@ function addDiagramControls(div) {
   };
   svg.addEventListener('pointerup', endPan);
   svg.addEventListener('pointercancel', endPan);
-  div.addEventListener('dblclick', reset);
+  div.ondblclick = reset; // the div outlives redraws: replace, don't stack
 }
 
 let mermaidSeq = 0;
@@ -126,6 +126,7 @@ function typesetMermaid(article, current) {
         const { svg } = await window.mermaid.render(id, div.dataset.mdpvSrc ?? div.textContent);
         if (!current()) return;
         div.innerHTML = svg; // vendored mermaid in strict mode
+        div.classList.remove('mdpv-zoomed'); // a re-theme replaces a zoomed view
         addDiagramControls(div);
       } catch {
         document.getElementById(`d${id}`)?.remove(); // mermaid's error scratch node
@@ -142,13 +143,14 @@ export function typeset(article, features, current) {
   if (features.mermaid !== false) typesetMermaid(article, current);
 }
 
-/** Effective color scheme changed: redraw diagrams in the matching theme. */
+/** Effective color scheme changed: redraw diagrams in the matching theme.
+ *  Each keeps its old drawing until the new one replaces it (no reflow);
+ *  failed ones show source, which has no theme. */
 export function retheme(article, current) {
   mermaidLoaded?.then(() => {
     window.mermaid.initialize(mermaidConfig());
-    for (const div of article.querySelectorAll('.mdpv-mermaid.mdpv-typeset')) {
-      div.classList.remove('mdpv-typeset', 'mdpv-error', 'mdpv-zoomed');
-      div.textContent = div.dataset.mdpvSrc || '';
+    for (const div of article.querySelectorAll('.mdpv-mermaid.mdpv-typeset:not(.mdpv-error)')) {
+      div.classList.remove('mdpv-typeset');
     }
     typesetMermaid(article, current);
   });

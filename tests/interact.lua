@@ -193,6 +193,8 @@ check(
     return require('mdpv.prefs').get().style == 'obsidian'
   end, 20)
 )
+local before, after = keys_out:match('PLACE (%S+) (%S+)')
+check('styles share the text column, switching keeps the place', before ~= nil and before == after, keys_out)
 check(']] jumps to a heading', keys_out:find('HEADING #', 1, true) ~= nil, keys_out)
 check('? opens the shortcut card', keys_ok and keys_out:find('HELP', 1, true) ~= nil, keys_out)
 require('mdpv').stop()
