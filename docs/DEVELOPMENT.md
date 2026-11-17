@@ -79,8 +79,12 @@ anything touching editor state goes through `vim.schedule`.
   light and dark builds into one sheet; a theme switch sets one attribute.
 - **Styles are CSS only.** `obsidian.css`, scoped to
   `:root[data-style='obsidian']`, remaps github-markdown variables (code
-  colors included) and the chrome tokens; markup never changes. Values and variable
-  names come from Obsidian's default theme (`publish.obsidian.md/app.css`).
+  colors included) and the chrome tokens; markup and page geometry (text
+  column, insets) never change. Values and variable names come from
+  Obsidian's default theme (`publish.obsidian.md/app.css`).
+- **Reflows keep the reader's place.** Style, full width, and outline
+  re-pin the block under the viewport anchor; browser scroll anchoring
+  gives up when margins and widths change around it.
 - **Path-versioned assets.** Relative imports, lazy vendor scripts, and
   KaTeX fonts inherit the version.
 - **Bounded.** 16 KiB headers, 4 KiB bodies, 3 s request timeout, 256

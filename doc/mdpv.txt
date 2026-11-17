@@ -174,7 +174,8 @@ STYLES                                                           *mdpv-styles*
              checkboxes, code; frontmatter as Properties
 
 Each works in every theme: light, dark, or auto (follows the system). Only
-CSS changes; the markup is the same.
+CSS changes; the markup and text column are the same, and switching keeps
+your place.
 
 OUTLINE                                                         *mdpv-outline*
 
